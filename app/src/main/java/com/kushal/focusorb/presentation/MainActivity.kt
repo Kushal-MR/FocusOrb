@@ -11,7 +11,9 @@ import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.wear.ambient.AmbientLifecycleObserver
 import androidx.activity.compose.setContent
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.animation.Crossfade
@@ -69,25 +71,91 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), AmbientLifecycleObserver.AmbientLifecycleCallback {
+
+    var isAmbient by mutableStateOf(false)
+        private set
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         setTheme(android.R.style.Theme_DeviceDefault)
+        
+        // Register Ambient Observer
+        // By registering this observer, the OS knows to put our app into Ambient Mode
+        // instead of closing it when the screen times out.
+        AmbientLifecycleObserver(this, this).also { observer ->
+            lifecycle.addObserver(observer)
+        }
 
         setContent {
             FocusOrbTheme {
-                FocusOrbApp()
+                FocusOrbApp(isAmbient = isAmbient)
             }
         }
+    }
+
+    override fun onEnterAmbient(ambientDetails: AmbientLifecycleObserver.AmbientDetails) {
+        isAmbient = true
+    }
+
+    override fun onExitAmbient() {
+        isAmbient = false
+    }
+
+    override fun onUpdateAmbient() {
+        // System requests a screen refresh in ambient mode
     }
 }
 
 @Composable
-fun FocusOrbApp(viewModel: FocusViewModel = viewModel()) {
+fun FocusOrbApp(isAmbient: Boolean = false, viewModel: FocusViewModel = viewModel()) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
+
+    // ── Bluetooth distraction listener ───────────────────────────────
+    // Registers on the Wearable MessageClient when this composable enters
+    // composition; unregisters when it leaves. The callback routes directly
+    // into the ViewModel's damage pipeline.
+    androidx.compose.runtime.DisposableEffect(context) {
+        val receiver = DistractionMessageReceiver(
+            context = context,
+            onDistractionCaught = { viewModel.takeDamage() }
+        )
+        receiver.register()
+        onDispose { receiver.unregister() }
+    }
+
+    // ── True Ambient Persistence (Ongoing Activity) ─────────────────────────
+    // Instead of forcing the screen to stay bright forever, we register an
+    // Ongoing Activity. This tells Wear OS that when the user drops their
+    // wrist, it should transition into our custom Ambient Mode instead of
+    // kicking us back to the watch face.
+    val activity = context as? android.app.Activity
+    
+    // Permission request launcher for Android 13+ Notifications
+    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (!isGranted) {
+            android.util.Log.w("FocusOrb", "Notification permission denied. Ambient mode persistence may fail.")
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    LaunchedEffect(uiState.sessionState) {
+        if (uiState.sessionState == SessionState.RUNNING || uiState.sessionState == SessionState.PAUSED) {
+            OngoingActivityManager.startOngoingActivity(context)
+        } else {
+            OngoingActivityManager.stopOngoingActivity(context)
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.timerEvent.collect { event ->
@@ -109,6 +177,16 @@ fun FocusOrbApp(viewModel: FocusViewModel = viewModel()) {
                     }
                 }
                 TimerEvent.COMPLETED -> {
+                    // ── Wake up the screen if in Ambient mode ──────────────────
+                    activity?.runOnUiThread {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                            activity.setTurnScreenOn(true)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
+                        }
+                    }
+
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         val timings = longArrayOf(
                             0, 
@@ -203,6 +281,7 @@ fun FocusOrbApp(viewModel: FocusViewModel = viewModel()) {
             contentAlignment = Alignment.Center
         ) {
             FocusOrb(
+                isAmbient = isAmbient,
                 progress = uiState.progress,
                 timeRemainingMs = uiState.timeRemainingMs,
                 sessionState = uiState.sessionState,
@@ -309,6 +388,7 @@ fun lerpFloat(start: Float, stop: Float, fraction: Float): Float = start + (stop
 
 @Composable
 fun FocusOrb(
+    isAmbient: Boolean = false,
     progress: Float, 
     timeRemainingMs: Long = 40 * 60 * 1000L, 
     sessionState: SessionState = SessionState.IDLE, 
@@ -339,10 +419,14 @@ fun FocusOrb(
         Offset(-baseX, -baseY)
     }
     
-    LaunchedEffect(isCompleted) {
+    LaunchedEffect(isCompleted, isAmbient) {
         if (isCompleted) {
-            supernovaTime.animateTo(1f, animationSpec = tween(4000, easing = LinearEasing))
-            onTransitionToGalaxy(finalGalaxyPan)
+            // Only start the completion star animation when the screen is fully awake from ambient mode.
+            if (!isAmbient) {
+                kotlinx.coroutines.delay(400) // Wait for screen hardware to wake up
+                supernovaTime.animateTo(1f, animationSpec = tween(4000, easing = LinearEasing))
+                onTransitionToGalaxy(finalGalaxyPan)
+            }
         } else {
             supernovaTime.snapTo(0f)
         }
@@ -356,9 +440,14 @@ fun FocusOrb(
 
     // Shatter animation progress
     val shatterProgress = remember { Animatable(0f) }
-    LaunchedEffect(isShattered) {
+    LaunchedEffect(isShattered, isAmbient) {
         if (isShattered) {
-            shatterProgress.animateTo(1f, animationSpec = tween(3000, easing = LinearOutSlowInEasing))
+            // Only start the shatter animation when the screen is fully awake from ambient mode.
+            // The small delay ensures the OLED screen has physically turned on before the explosion.
+            if (!isAmbient) {
+                kotlinx.coroutines.delay(400) // Wait for screen hardware to wake up
+                shatterProgress.animateTo(1f, animationSpec = tween(3000, easing = LinearOutSlowInEasing))
+            }
         } else {
             shatterProgress.snapTo(0f)
         }
@@ -516,7 +605,33 @@ fun FocusOrb(
                 )
             }
             
-            if (isShattered) {
+            if (isAmbient) {
+                // Ambient Mode: Minimal, static white outline
+                drawCircle(
+                    color = Color.White,
+                    radius = baseRadius,
+                    center = center,
+                    style = Stroke(width = 2.dp.toPx())
+                )
+                
+                // Draw simple static fractures if damaged
+                if (orbHealth < 3 && fractures != null) {
+                    if (orbHealth <= 2) {
+                        drawPath(
+                            path = fractures!![0].mainPath,
+                            color = Color.White,
+                            style = Stroke(width = 1.dp.toPx())
+                        )
+                    }
+                    if (orbHealth <= 1) {
+                        drawPath(
+                            path = fractures!![1].mainPath,
+                            color = Color.White,
+                            style = Stroke(width = 1.dp.toPx())
+                        )
+                    }
+                }
+            } else if (isShattered) {
                 // Shatter explosion rendering
                 val progressVal = shatterProgress.value
                 val currentAlpha = 1f - (progressVal * progressVal)
@@ -906,23 +1021,23 @@ fun generateGalaxyLayout(count: Int): List<Pair<Int, Int>> {
     return layout
 }
 
+val STAR_PALETTE = listOf(
+    Color(0xFF00BCD4), // Rich Cyan
+    Color(0xFF8A2BE2), // Blue Violet
+    Color(0xFFFF3366), // Vibrant Pink
+    Color(0xFF00FA9A), // Medium Spring Green
+    Color(0xFF7B68EE), // Medium Slate Blue
+    Color(0xFFFF00FF), // Magenta
+    Color(0xFF1E90FF), // Dodger Blue
+    Color(0xFF00FF7F)  // Spring Green
+)
+
 fun getStarThemeColor(index: Int, size: StarSize): Color {
     if (size == StarSize.EPIC) return Color(0xFFFFFACD) // Glowing Golden White
     
-    val palette = listOf(
-        Color(0xFF00BCD4), // Rich Cyan
-        Color(0xFF8A2BE2), // Blue Violet
-        Color(0xFFFF3366), // Vibrant Pink
-        Color(0xFF00FA9A), // Medium Spring Green
-        Color(0xFF7B68EE), // Medium Slate Blue
-        Color(0xFFFF00FF), // Magenta
-        Color(0xFF1E90FF), // Dodger Blue
-        Color(0xFF00FF7F)  // Spring Green
-    )
-    
     // Hash index to deterministically pick a beautiful color
-    val hash = (index * 31 + 17) % palette.size
-    return palette[hash]
+    val hash = (index * 31 + 17) % STAR_PALETTE.size
+    return STAR_PALETTE[hash]
 }
 
 @Composable
@@ -930,7 +1045,9 @@ fun GalaxyView(earnedStars: List<StarSize>, initialPan: Offset = Offset.Zero) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     val coroutineScope = rememberCoroutineScope()
     
-    val panOffset = remember { Animatable(initialPan, Offset.VectorConverter) }
+    var pan by remember { mutableStateOf(initialPan) }
+    val flingAnimatable = remember { Animatable(initialPan, Offset.VectorConverter) }
+    var flingJob: kotlinx.coroutines.Job? by remember { mutableStateOf(null) }
     
     val coordinates = remember(earnedStars.size) { generateGalaxyLayout(earnedStars.size) }
 
@@ -943,7 +1060,7 @@ fun GalaxyView(earnedStars: List<StarSize>, initialPan: Offset = Offset.Zero) {
                 awaitPointerEventScope {
                     while (true) {
                         val down = awaitFirstDown()
-                        coroutineScope.launch { panOffset.stop() }
+                        flingJob?.cancel()
                         
                         val tracker = VelocityTracker()
                         tracker.addPosition(down.uptimeMillis, down.position)
@@ -955,7 +1072,7 @@ fun GalaxyView(earnedStars: List<StarSize>, initialPan: Offset = Offset.Zero) {
                             
                             if (drag != null && drag.pressed) {
                                 val change = drag.position - drag.previousPosition
-                                coroutineScope.launch { panOffset.snapTo(panOffset.value + change) }
+                                pan += change // Synchronous update! Perfectly smooth 60fps.
                                 tracker.addPosition(drag.uptimeMillis, drag.position)
                                 drag.consume()
                             } else {
@@ -965,15 +1082,19 @@ fun GalaxyView(earnedStars: List<StarSize>, initialPan: Offset = Offset.Zero) {
                         
                         val velocity = tracker.calculateVelocity()
                         val velocityOffset = Offset(velocity.x, velocity.y)
-                        coroutineScope.launch {
-                            panOffset.animateDecay(velocityOffset, decay)
+                        flingJob = coroutineScope.launch {
+                            flingAnimatable.snapTo(pan)
+                            flingAnimatable.animateDecay(velocityOffset, decay) {
+                                pan = this.value
+                            }
                         }
                     }
                 }
             }
     ) {
         val screenCenter = Offset(size.width / 2, size.height / 2)
-        val pan = panOffset.value
+        // Read the synchronous pan state instead of the animatable
+        // pan is already read synchronously during drag.
         // Full screen dimension as radius — fade-to-zero happens well off-screen
         val maxRadius = kotlin.math.max(size.width, size.height)
         val lensRadius = maxRadius
@@ -1036,6 +1157,56 @@ fun GalaxyView(earnedStars: List<StarSize>, initialPan: Offset = Offset.Zero) {
     }
 }
 
+// ── Pre-cached Drawing Objects (Prevents GC Thrashing at 60fps) ────────────
+val cachedSparklePath = Path().apply {
+    val r2 = 1f
+    val innerR = 0.15f
+    moveTo(0f, -r2)
+    quadraticTo(0f, -innerR, r2, 0f)
+    quadraticTo(0f, innerR, 0f, r2)
+    quadraticTo(-innerR, 0f, -r2, 0f)
+    quadraticTo(0f, -innerR, 0f, -r2)
+    close()
+}
+
+val cachedCorePath = Path().apply {
+    val r2 = 1f
+    val coreR = 0.7f
+    val coreInnerR = coreR * 0.12f
+    moveTo(0f, -coreR)
+    quadraticTo(0f, -coreInnerR, coreR, 0f)
+    quadraticTo(0f, coreInnerR, 0f, coreR)
+    quadraticTo(-coreInnerR, 0f, -coreR, 0f)
+    quadraticTo(0f, -coreInnerR, 0f, -coreR)
+    close()
+}
+
+val cachedAuraBrushes = mutableMapOf<Color, Brush>()
+fun getAuraBrush(themeColor: Color, radius: Float): Brush {
+    // We only cache the standard GalaxyView radius to prevent memory leaks from the breathing animation
+    if (radius == 4.2f) {
+        return cachedAuraBrushes.getOrPut(themeColor) {
+            Brush.radialGradient(
+                0.0f to themeColor.copy(alpha = 0.4f),
+                0.5f to themeColor.copy(alpha = 0.15f),
+                1.0f to Color.Transparent,
+                center = Offset.Zero,
+                radius = 4.2f
+            )
+        }
+    }
+    
+    // For the main breathing star, we create it dynamically (only 1 per frame, so it's cheap)
+    return Brush.radialGradient(
+        0.0f to themeColor.copy(alpha = 0.4f),
+        0.5f to themeColor.copy(alpha = 0.15f),
+        1.0f to Color.Transparent,
+        center = Offset.Zero,
+        radius = radius
+    )
+}
+// ─────────────────────────────────────────────────────────────────────────
+
 fun DrawScope.drawCinematicStar(
     x: Float, y: Float,
     scale: Float,
@@ -1047,55 +1218,30 @@ fun DrawScope.drawCinematicStar(
     if (alpha < 0.01f || scale < 0.01f) return
     withTransform({
         translate(left = x, top = y)
-        scale(scaleX = scale, scaleY = scale, pivot = Offset.Zero)
+        // Scale by baseRadius here so our static paths are sized perfectly
+        scale(scaleX = scale * baseRadius, scaleY = scale * baseRadius, pivot = Offset.Zero)
     }) {
-        val r2 = baseRadius
-        val innerR = r2 * 0.15f
-        
         // Aura
-        val auraRadius = r2 * 3.5f * pulseAuraScale
+        val auraRadius = 4.2f * pulseAuraScale
         drawCircle(
-            brush = Brush.radialGradient(
-                colorStops = arrayOf(
-                    0.0f to themeColor.copy(alpha = alpha * 0.4f),
-                    0.5f to themeColor.copy(alpha = alpha * 0.15f),
-                    1.0f to Color.Transparent
-                ),
-                center = Offset.Zero,
-                radius = auraRadius
-            ),
+            brush = getAuraBrush(themeColor, auraRadius),
             center = Offset.Zero,
-            radius = auraRadius
+            radius = auraRadius,
+            alpha = alpha
         )
         
         // Sparkle
-        val sparklePath = Path()
-        sparklePath.moveTo(0f, -r2)
-        sparklePath.quadraticTo(0f, -innerR, r2, 0f)
-        sparklePath.quadraticTo(0f, innerR, 0f, r2)
-        sparklePath.quadraticTo(-innerR, 0f, -r2, 0f)
-        sparklePath.quadraticTo(0f, -innerR, 0f, -r2)
-        sparklePath.close()
-        
         drawPath(
-            path = sparklePath,
-            color = themeColor.copy(alpha = alpha * 0.4f)
+            path = cachedSparklePath,
+            color = themeColor,
+            alpha = alpha * 0.4f
         )
         
         // Core
-        val corePath = Path()
-        val coreR = r2 * 0.7f
-        val coreInnerR = coreR * 0.12f
-        corePath.moveTo(0f, -coreR)
-        corePath.quadraticTo(0f, -coreInnerR, coreR, 0f)
-        corePath.quadraticTo(0f, coreInnerR, 0f, coreR)
-        corePath.quadraticTo(-coreInnerR, 0f, -coreR, 0f)
-        corePath.quadraticTo(0f, -coreInnerR, 0f, -coreR)
-        corePath.close()
-        
         drawPath(
-            path = corePath,
-            color = Color.White.copy(alpha = alpha)
+            path = cachedCorePath,
+            color = Color.White,
+            alpha = alpha
         )
     }
 }

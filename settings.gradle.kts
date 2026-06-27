@@ -21,4 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "FocusOrb"
 include(":app")
- 
+include(":focusorb")

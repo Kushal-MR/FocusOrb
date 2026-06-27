@@ -2,6 +2,7 @@ package com.kushal.focusorb.presentation
 
 import android.app.Application
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
@@ -23,10 +24,10 @@ enum class TimerEvent {
 }
 
 enum class StarSize(val sizeDp: Float) {
-    SMALL(6f),
-    MEDIUM(12f),
-    LARGE(18f),
-    EPIC(26f)
+    SMALL(10f),
+    MEDIUM(15f),
+    LARGE(20f),
+    EPIC(28f)
 }
 
 data class SessionDuration(val minutes: Int, val starSize: StarSize) {
@@ -34,7 +35,7 @@ data class SessionDuration(val minutes: Int, val starSize: StarSize) {
 }
 
 val AVAILABLE_DURATIONS = listOf(
-    SessionDuration(10, StarSize.SMALL),
+    SessionDuration(1, StarSize.SMALL),
     SessionDuration(0, StarSize.MEDIUM),
     SessionDuration(45, StarSize.LARGE),
     SessionDuration(60, StarSize.EPIC)
@@ -70,17 +71,12 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun loadStars() {
-        val starsString = prefs.getString("earned_stars", null)
-        val stars = if (starsString.isNullOrEmpty()) {
-            // Mock data for first launch to show off the galaxy
-            val mockStars = List(40) { StarSize.SMALL } + List(25) { StarSize.MEDIUM } + List(20) { StarSize.LARGE } + List(6) { StarSize.EPIC }
-            saveStars(mockStars)
-            mockStars
-        } else {
-            starsString.split(",").mapNotNull { name ->
-                runCatching { StarSize.valueOf(name) }.getOrNull()
-            }
-        }
+        // Force a beautifully mixed 100-star structure for testing
+        val mockStars = (List(20) { StarSize.SMALL } + 
+                         List(30) { StarSize.MEDIUM } + 
+                         List(40) { StarSize.LARGE } + 
+                         List(10) { StarSize.EPIC }).shuffled()
+        val stars = mockStars
         _uiState.update { it.copy(earnedStars = stars) }
     }
 
@@ -129,17 +125,27 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value.sessionState == SessionState.SHATTERED) return
         
         _uiState.update { it.copy(sessionState = SessionState.RUNNING) }
+
+        // Signal the phone to start monitoring
+        viewModelScope.launch {
+            PhoneBridgeManager.sendSessionStarted(getApplication())
+        }
         
         timerJob = viewModelScope.launch {
+            val endTime = System.currentTimeMillis() + _uiState.value.timeRemainingMs
+            var nextPulseThreshold = 10 * 60 * 1000L
+            
             while (_uiState.value.timeRemainingMs > 0) {
-                delay(1000)
+                kotlinx.coroutines.delay(1000)
+                val remaining = kotlin.math.max(0L, endTime - System.currentTimeMillis())
                 _uiState.update { 
-                    it.copy(timeRemainingMs = it.timeRemainingMs - 1000)
+                    it.copy(timeRemainingMs = remaining)
                 }
                 
-                val elapsed = _uiState.value.currentDuration.ms - _uiState.value.timeRemainingMs
-                if (elapsed > 0 && elapsed % (10 * 60 * 1000L) == 0L && _uiState.value.timeRemainingMs > 0) {
+                val elapsed = _uiState.value.currentDuration.ms - remaining
+                if (elapsed >= nextPulseThreshold && remaining > 0) {
                     _timerEvent.send(TimerEvent.PULSE)
+                    nextPulseThreshold += 10 * 60 * 1000L
                 }
             }
             if (_uiState.value.timeRemainingMs <= 0) {
@@ -149,6 +155,9 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
                 
                 _uiState.update { it.copy(sessionState = SessionState.COMPLETED, timeRemainingMs = 0, earnedStars = newStars) }
                 _timerEvent.send(TimerEvent.COMPLETED)
+
+                // Signal the phone to stop monitoring — session completed successfully
+                PhoneBridgeManager.sendSessionEnded(getApplication())
             }
         }
     }
@@ -165,13 +174,19 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
         if (newHealth <= 0) {
             timerJob?.cancel()
             _uiState.update { it.copy(orbHealth = 0, sessionState = SessionState.SHATTERED) }
-            viewModelScope.launch { _timerEvent.send(TimerEvent.SHATTER) }
+            viewModelScope.launch {
+                _timerEvent.send(TimerEvent.SHATTER)
+                // Signal the phone to stop monitoring — session shattered
+                PhoneBridgeManager.sendSessionEnded(getApplication())
+            }
         } else {
             _uiState.update { it.copy(orbHealth = newHealth) }
         }
     }
 
     fun resetSession() {
+        val wasActive = _uiState.value.sessionState == SessionState.RUNNING ||
+                        _uiState.value.sessionState == SessionState.PAUSED
         timerJob?.cancel()
         _uiState.update { 
             it.copy(
@@ -179,6 +194,13 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
                 timeRemainingMs = it.currentDuration.ms,
                 orbHealth = 3
             )
+        }
+
+        // Signal the phone to stop monitoring if session was active
+        if (wasActive) {
+            viewModelScope.launch {
+                PhoneBridgeManager.sendSessionEnded(getApplication())
+            }
         }
     }
 

@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Focus Orb</string>
+    <string name="accessibility_service_description">Focus Orb monitors which app is in the foreground during a focus session to detect distractions and protect your orb.</string>
+</resources>
