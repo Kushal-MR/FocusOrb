@@ -50,17 +50,17 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.kushal.focusorb.BlocklistStore
 
-// ── Color palette (true-black premium) ───────────────────────────────────
-private val SurfaceBlack       = Color(0xFF000000)
-private val CardSurface        = Color(0xFF0D0D0D)
+// ── Color palette (minimalistic premium dark mode) ───────────────────────
+private val SurfaceBlack       = Color(0xFF0A0A0C)
+private val CardSurface        = Color(0xFF141417)
 private val CardBorder         = Color(0xFF1A1A1A)
-private val TextPrimary        = Color(0xFFE8E8E8)
-private val TextSecondary      = Color(0xFF6B6B6B)
-private val AccentCyan         = Color(0xFF00E5CC)
-private val AccentRed          = Color(0xFFFF3B5C)
-private val WarningAmber       = Color(0xFFFFAB40)
-private val SwitchTrackOff     = Color(0xFF1A1A1A)
-private val DividerColor       = Color(0xFF111111)
+private val TextPrimary        = Color(0xFFF2F2F2)
+private val TextSecondary      = Color(0xFF8E8E93)
+private val AccentCyan         = Color(0xFFE0E0E0) // Minimalistic soft white/silver accent
+private val AccentRed          = Color(0xFFFF453A) // Apple-style soft destructive red
+private val WarningAmber       = Color(0xFFFF9F0A)
+private val SwitchTrackOff     = Color(0xFF1C1C1E)
+private val DividerColor       = Color(0xFF1C1C1E)
 
 /**
  * FocusOrbDashboard — The top-level Compose screen.
@@ -109,23 +109,23 @@ fun FocusOrbDashboard() {
                 Text(
                     text = "FOCUS ORB",
                     color = AccentCyan,
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 4.sp
+                    letterSpacing = 2.sp
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Distraction Shield",
                     color = TextPrimary,
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Medium
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "Block distracting apps during focus sessions.",
+                    text = "Select the apps you want to block during focus sessions.",
                     color = TextSecondary,
                     fontSize = 14.sp,
-                    lineHeight = 20.sp
+                    lineHeight = 22.sp
                 )
             }
         }
@@ -194,7 +194,7 @@ private fun PermissionGateCard(context: Context) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A0A00))
+        colors = CardDefaults.cardColors(containerColor = CardSurface)
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -257,7 +257,7 @@ private fun ServiceActiveCard() {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF001A17))
+        colors = CardDefaults.cardColors(containerColor = CardSurface)
     ) {
         Row(
             modifier = Modifier.padding(20.dp),
@@ -295,28 +295,12 @@ private fun AppRow(
     isBlocked: Boolean,
     onToggle: (Boolean) -> Unit
 ) {
-    val dotColor by animateColorAsState(
-        targetValue = if (isBlocked) AccentRed else TextSecondary.copy(alpha = 0.3f),
-        animationSpec = tween(durationMillis = 300),
-        label = "dotColor"
-    )
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 10.dp, horizontal = 4.dp),
+            .padding(vertical = 12.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Status dot
-        Box(
-            modifier = Modifier
-                .size(6.dp)
-                .clip(CircleShape)
-                .background(dotColor)
-        )
-
-        Spacer(modifier = Modifier.width(14.dp))
-
         // App info
         Column(modifier = Modifier.weight(1f)) {
             Text(

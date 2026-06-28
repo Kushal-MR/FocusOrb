@@ -17,18 +17,12 @@ data class DistractionApp(
  * on/off state is persisted via [com.kushal.focusorb.BlocklistStore].
  */
 val DEFAULT_DISTRACTION_APPS = listOf(
+    DistractionApp("WhatsApp",   "com.whatsapp"),
+    DistractionApp("Chrome",     "com.android.chrome"),
     DistractionApp("Instagram",  "com.instagram.android"),
     DistractionApp("Reddit",     "com.reddit.frontpage"),
     DistractionApp("YouTube",    "com.google.android.youtube"),
-    DistractionApp("TikTok",     "com.zhiliaoapp.musically"),
-    DistractionApp("X (Twitter)","com.twitter.android"),
-    DistractionApp("Snapchat",   "com.snapchat.android"),
-    DistractionApp("Facebook",   "com.facebook.katana"),
-    DistractionApp("Messenger",  "com.facebook.orca"),
-    DistractionApp("Pinterest",  "com.pinterest"),
-    DistractionApp("Tumblr",     "com.tumblr"),
     DistractionApp("Discord",    "com.discord"),
-    DistractionApp("Twitch",     "tv.twitch.android.app"),
     DistractionApp("LinkedIn",   "com.linkedin.android"),
     DistractionApp("Telegram",   "org.telegram.messenger")
 )

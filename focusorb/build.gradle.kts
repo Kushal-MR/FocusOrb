@@ -5,9 +5,7 @@ plugins {
 
 android {
     namespace = "com.kushal.focusorb"
-    compileSdk {
-        version = release(36)
-    }
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.kushal.focusorb"

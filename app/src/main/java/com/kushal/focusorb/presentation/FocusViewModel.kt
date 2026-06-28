@@ -35,15 +35,15 @@ data class SessionDuration(val minutes: Int, val starSize: StarSize) {
 }
 
 val AVAILABLE_DURATIONS = listOf(
-    SessionDuration(1, StarSize.SMALL),
-    SessionDuration(0, StarSize.MEDIUM),
-    SessionDuration(45, StarSize.LARGE),
+    SessionDuration(20, StarSize.SMALL),
+    SessionDuration(30, StarSize.MEDIUM),
+    SessionDuration(40, StarSize.LARGE),
     SessionDuration(60, StarSize.EPIC)
 )
 
 data class FocusUiState(
-    val selectedDurationIndex: Int = 2, // Default to 45 mins
-    val timeRemainingMs: Long = AVAILABLE_DURATIONS[2].ms,
+    val selectedDurationIndex: Int = 1, // Default to 30 mins
+    val timeRemainingMs: Long = AVAILABLE_DURATIONS[1].ms,
     val sessionState: SessionState = SessionState.IDLE,
     val orbHealth: Int = 3,
     val earnedStars: List<StarSize> = emptyList()
@@ -71,42 +71,29 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun loadStars() {
-        // Force a beautifully mixed 100-star structure for testing
-        val mockStars = (List(20) { StarSize.SMALL } + 
-                         List(30) { StarSize.MEDIUM } + 
-                         List(40) { StarSize.LARGE } + 
-                         List(10) { StarSize.EPIC }).shuffled()
-        val stars = mockStars
+        val starsString = prefs.getString("earned_stars_v2", null)
+        val stars = if (starsString.isNullOrEmpty()) {
+            emptyList()
+        } else {
+            starsString.split(",").mapNotNull { name ->
+                runCatching { StarSize.valueOf(name) }.getOrNull()
+            }
+        }
         _uiState.update { it.copy(earnedStars = stars) }
     }
 
     private fun saveStars(stars: List<StarSize>) {
         val starsString = stars.joinToString(",") { it.name }
-        prefs.edit().putString("earned_stars", starsString).apply()
+        prefs.edit().putString("earned_stars_v2", starsString).apply()
     }
 
-    fun selectNextDuration() {
+    fun selectDuration(index: Int) {
         if (_uiState.value.sessionState != SessionState.IDLE) return
-        val nextIndex = (_uiState.value.selectedDurationIndex + 1) % AVAILABLE_DURATIONS.size
-        _uiState.update { 
+        if (index < 0 || index >= AVAILABLE_DURATIONS.size) return
+        _uiState.update {
             it.copy(
-                selectedDurationIndex = nextIndex,
-                timeRemainingMs = AVAILABLE_DURATIONS[nextIndex].ms
-            )
-        }
-    }
-
-    fun selectPreviousDuration() {
-        if (_uiState.value.sessionState != SessionState.IDLE) return
-        val prevIndex = if (_uiState.value.selectedDurationIndex - 1 < 0) {
-            AVAILABLE_DURATIONS.size - 1
-        } else {
-            _uiState.value.selectedDurationIndex - 1
-        }
-        _uiState.update { 
-            it.copy(
-                selectedDurationIndex = prevIndex,
-                timeRemainingMs = AVAILABLE_DURATIONS[prevIndex].ms
+                selectedDurationIndex = index,
+                timeRemainingMs = AVAILABLE_DURATIONS[index].ms
             )
         }
     }

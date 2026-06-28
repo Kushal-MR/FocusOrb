@@ -16,14 +16,31 @@ import androidx.activity.ComponentActivity
 import androidx.wear.ambient.AmbientLifecycleObserver
 import androidx.activity.compose.setContent
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.splineBasedDecay
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -237,7 +254,7 @@ fun FocusOrbApp(isAmbient: Boolean = false, viewModel: FocusViewModel = viewMode
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 16.dp)
-                    .background(Color.DarkGray.copy(alpha = 0.6f), shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                    .background(Color.DarkGray.copy(alpha = 0.6f), shape = RoundedCornerShape(16.dp))
                     .padding(horizontal = 12.dp, vertical = 6.dp)
                     .pointerInput(Unit) {
                         detectTapGestures(onTap = { 
@@ -258,62 +275,200 @@ fun FocusOrbApp(isAmbient: Boolean = false, viewModel: FocusViewModel = viewMode
             }
         }
     } else {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onDoubleTap = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            viewModel.takeDamage()
-                        },
-                        onTap = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            viewModel.toggleSession()
-                        },
-                        onLongPress = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            viewModel.resetSession()
+        // ── Two-page HorizontalPager ─────────────────────────────────
+        // Page 0: The Focus Orb
+        // Page 1: Duration Selection Menu (only reachable when IDLE)
+        val isIdle = uiState.sessionState == SessionState.IDLE
+        val pagerState = rememberPagerState(initialPage = 0, pageCount = { if (isIdle) 2 else 1 })
+        val coroutineScope = rememberCoroutineScope()
+        
+        // Auto-snap back to page 0 when a session starts
+        LaunchedEffect(isIdle) {
+            if (!isIdle && pagerState.currentPage != 0) {
+                pagerState.animateScrollToPage(0)
+            }
+        }
+
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            beyondViewportPageCount = 1
+        ) { page ->
+            when (page) {
+                0 -> {
+                    // ── Main Orb Page ──────────────────────────────────────
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black)
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onTap = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        viewModel.toggleSession()
+                                    },
+                                    onLongPress = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        viewModel.resetSession()
+                                    }
+                                )
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        FocusOrb(
+                            isAmbient = isAmbient,
+                            progress = uiState.progress,
+                            timeRemainingMs = uiState.timeRemainingMs,
+                            sessionState = uiState.sessionState,
+                            orbHealth = uiState.orbHealth,
+                            currentDuration = uiState.currentDuration,
+                            earnedStars = uiState.earnedStars,
+                            onTransitionToGalaxy = { finalPan -> 
+                                targetGalaxyPan = finalPan
+                                isGalaxyView = true 
+                            }
+                        )
+                        
+                        if (isIdle) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 16.dp)
+                                    .background(Color.DarkGray.copy(alpha = 0.6f), shape = RoundedCornerShape(16.dp))
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    .pointerInput(Unit) {
+                                        detectTapGestures(onTap = { isGalaxyView = true })
+                                    }
+                            ) {
+                                Text(
+                                    text = "View Galaxy",
+                                    color = Color.White.copy(alpha = 0.9f),
+                                    fontFamily = FontFamily.SansSerif,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+                1 -> {
+                    // ── Duration Selection Menu ───────────────────────────
+                    DurationSelectionPage(
+                        selectedIndex = uiState.selectedDurationIndex,
+                        onSelect = { index ->
+                            viewModel.selectDuration(index)
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(0)
+                            }
                         }
                     )
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            FocusOrb(
-                isAmbient = isAmbient,
-                progress = uiState.progress,
-                timeRemainingMs = uiState.timeRemainingMs,
-                sessionState = uiState.sessionState,
-                orbHealth = uiState.orbHealth,
-                currentDuration = uiState.currentDuration,
-                earnedStars = uiState.earnedStars,
-                onNextDuration = { viewModel.selectNextDuration() },
-                onPrevDuration = { viewModel.selectPreviousDuration() },
-                onTransitionToGalaxy = { finalPan -> 
-                    targetGalaxyPan = finalPan
-                    isGalaxyView = true 
                 }
+            }
+        }
+    }
+}
+
+// ── Duration Selection Page ─────────────────────────────────────────────
+@Composable
+fun DurationSelectionPage(
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(horizontal = 24.dp)
+        ) {
+            Text(
+                text = "SESSION",
+                color = Color.White.copy(alpha = 0.4f),
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Medium,
+                fontSize = 10.sp,
+                letterSpacing = 3.sp
             )
+            Spacer(modifier = Modifier.height(12.dp))
             
-            if (uiState.sessionState == SessionState.IDLE) {
+            AVAILABLE_DURATIONS.forEachIndexed { index, duration ->
+                val isSelected = index == selectedIndex
+                val bgAlpha by animateFloatAsState(
+                    targetValue = if (isSelected) 0.15f else 0f,
+                    animationSpec = tween(250),
+                    label = "bgAlpha"
+                )
+                val textAlpha by animateFloatAsState(
+                    targetValue = if (isSelected) 1f else 0.5f,
+                    animationSpec = tween(250),
+                    label = "textAlpha"
+                )
+                
+                val starLabel = when (duration.starSize) {
+                    StarSize.SMALL -> "Small Star"
+                    StarSize.MEDIUM -> "Medium Star"
+                    StarSize.LARGE -> "Large Star"
+                    StarSize.EPIC -> "Epic Star"
+                }
+                
                 Box(
                     modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 16.dp)
-                        .background(Color.DarkGray.copy(alpha = 0.6f), shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                        .pointerInput(Unit) {
-                            detectTapGestures(onTap = { isGalaxyView = true })
+                        .fillMaxWidth()
+                        .background(
+                            Color.White.copy(alpha = bgAlpha),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onSelect(index)
                         }
+                        .padding(vertical = 10.dp, horizontal = 16.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "View Galaxy",
-                        color = Color.White.copy(alpha = 0.9f),
-                        fontFamily = FontFamily.SansSerif,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "${duration.minutes}",
+                            color = Color.White.copy(alpha = textAlpha),
+                            fontFamily = FontFamily.SansSerif,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "min",
+                            color = Color.White.copy(alpha = textAlpha * 0.6f),
+                            fontFamily = FontFamily.SansSerif,
+                            fontWeight = FontWeight.Light,
+                            fontSize = 12.sp
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "·",
+                            color = Color.White.copy(alpha = textAlpha * 0.3f),
+                            fontSize = 14.sp
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = starLabel,
+                            color = Color.White.copy(alpha = textAlpha * 0.5f),
+                            fontFamily = FontFamily.SansSerif,
+                            fontWeight = FontWeight.Normal,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+                
+                if (index < AVAILABLE_DURATIONS.size - 1) {
+                    Spacer(modifier = Modifier.height(4.dp))
                 }
             }
         }
@@ -390,13 +545,11 @@ fun lerpFloat(start: Float, stop: Float, fraction: Float): Float = start + (stop
 fun FocusOrb(
     isAmbient: Boolean = false,
     progress: Float, 
-    timeRemainingMs: Long = 40 * 60 * 1000L, 
+    timeRemainingMs: Long = 30 * 60 * 1000L, 
     sessionState: SessionState = SessionState.IDLE, 
     orbHealth: Int = 3,
-    currentDuration: SessionDuration = SessionDuration(45, StarSize.LARGE),
+    currentDuration: SessionDuration = SessionDuration(30, StarSize.MEDIUM),
     earnedStars: List<StarSize> = emptyList(),
-    onNextDuration: () -> Unit = {},
-    onPrevDuration: () -> Unit = {},
     onTransitionToGalaxy: (Offset) -> Unit = {}
 ) {
     val isCompleted = sessionState == SessionState.COMPLETED
@@ -892,45 +1045,26 @@ fun FocusOrb(
                 modifier = Modifier.align(Alignment.Center)
             )
         } else if (isIdle) {
-            // Duration Picker
-            var dragAccumulator by remember { mutableStateOf(0f) }
-            androidx.compose.foundation.layout.Column(
+            // Clean bottom text showing selected duration
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 28.dp)
-                    .pointerInput(Unit) {
-                        detectHorizontalDragGestures(
-                            onDragEnd = { dragAccumulator = 0f },
-                            onDragCancel = { dragAccumulator = 0f }
-                        ) { change, dragAmount -> 
-                            change.consume()
-                            dragAccumulator += dragAmount
-                            if (dragAccumulator > 80f) {
-                                onPrevDuration()
-                                dragAccumulator = 0f
-                            } else if (dragAccumulator < -80f) {
-                                onNextDuration()
-                                dragAccumulator = 0f
-                            }
-                        }
-                    },
+                    .padding(bottom = 28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                androidx.compose.animation.Crossfade(targetState = currentDuration.minutes, animationSpec = tween(300)) { minutes ->
-                    Text(
-                        text = "$minutes Min",
-                        color = Color.White.copy(alpha = 0.9f),
-                        fontFamily = FontFamily.SansSerif,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 18.sp
-                    )
-                }
                 Text(
-                    text = "Swipe to change • Tap to begin",
-                    color = Color.White.copy(alpha = 0.5f),
+                    text = "${currentDuration.minutes} Min",
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontFamily = FontFamily.SansSerif,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 18.sp
+                )
+                Text(
+                    text = "Tap to begin • Swipe to change",
+                    color = Color.White.copy(alpha = 0.4f),
                     fontFamily = FontFamily.SansSerif,
                     fontWeight = FontWeight.Light,
-                    fontSize = 10.sp,
+                    fontSize = 9.sp,
                     modifier = Modifier.padding(top = 2.dp)
                 )
             }
