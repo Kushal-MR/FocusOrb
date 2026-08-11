@@ -5,43 +5,43 @@
   <img src="https://img.shields.io/badge/Min%20SDK-30-brightgreen?style=for-the-badge" alt="Min SDK" />
 </p>
 
-# 🔮 FocusOrb
+# FocusOrb
 
-**A gamified anti-distraction system for Wear OS + Android.**
+**An anti-distraction system for Wear OS + Android.**
 
 Start a focus session on your watch, and your phone becomes your shield — blocking distracting apps in real-time and punishing you if you stray. Complete a session to earn stars and build your personal galaxy.
 
 ---
 
-## 💡 How It Works
+## How It Works
 
 FocusOrb is a **dual-device** system with two components working together over Bluetooth:
 
-### ⌚ Watch — *The Focus Orb*
+### Watch — *The Focus Orb*
 A glowing, animated energy orb lives on your wrist. Start a focus session and the orb pulses with life. Stay focused, and the orb rewards you. Get distracted, and it fights back.
 
-### 📱 Phone — *The Distraction Shield*
+### Phone — *The Distraction Shield*
 While a session is active, the phone runs a lightweight background service (the **"Distraction Sniper"**) that monitors which app is in the foreground. Open a blocked app? The phone instantly sends a signal to your watch.
 
-### ⚔️ The Penalty System
+### The Penalty System
 - The orb has **3 Health Points**.
 - Each distraction triggers **screen shake**, **crystalline fracture visuals**, and **heavy haptic feedback** on the watch.
 - Stay inside a blocked app and a **Poison Tick** deals repeated damage every 5 seconds.
 - Lose all HP → the orb **shatters** and your session is lost.
 
-### 🌟 The Reward
+### The Reward
 Complete a session and the orb **collapses into a supernova**, birthing a collectible star. Stars are placed into an interactive, scrollable **2D hex-spiral galaxy** you build over time.
 
 | Duration | Reward |
 |:--------:|:------:|
-| 20 min   | ⭐ Small Star |
-| 30 min   | 🌟 Medium Star |
-| 40 min   | ✨ Large Star |
-| 60 min   | 💫 Epic Star |
+| 20 min   |  Small Star |
+| 30 min   | Medium Star |
+| 40 min   |  Large Star |
+| 60 min   |  Epic Star  |
 
 ---
 
-## ✨ Key Features
+## Key Features
 
 - **Dynamic Canvas Orb** — Breathing radial gradient animations with real-time fracture rendering on damage
 - **Ambient Mode Support** — Ongoing Activity API keeps the session alive when you lower your wrist (Wear OS 3+)
@@ -53,11 +53,11 @@ Complete a session and the orb **collapses into a supernova**, birthing a collec
 
 ---
 
-## 🏗️ Project Structure
+## Project Structure
 
 ```
 FocusOrb/
-├── app/                    # ⌚ Wear OS Watch App
+├── app/                    #  Wear OS Watch App
 │   └── src/main/.../presentation/
 │       ├── MainActivity.kt              # Compose Canvas UI, Orb, Supernova, Galaxy
 │       ├── FocusViewModel.kt            # Session timer, state, star rewards
@@ -65,7 +65,7 @@ FocusOrb/
 │       ├── PhoneBridgeManager.kt        # Sends session signals to phone
 │       └── DistractionMessageReceiver.kt # Receives distraction hits from phone
 │
-├── focusorb/               # 📱 Android Phone Companion App
+├── focusorb/               #  Android Phone Companion App
 │   └── src/main/.../
 │       ├── MainActivity.kt              # Phone Activity with Compose UI
 │       ├── DistractionSniperService.kt  # AccessibilityService (app monitor)
@@ -98,7 +98,7 @@ FocusOrb/
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 - Android Studio (Ladybug or newer recommended)
@@ -127,7 +127,7 @@ FocusOrb/
 
 ---
 
-## 📝 Permissions
+## Permissions
 
 | Permission | Device | Purpose |
 |------------|--------|---------|
@@ -139,7 +139,7 @@ FocusOrb/
 
 ---
 
-## 📄 License
+## License
 
 This project is open source. Feel free to explore, learn from, and build upon it.
 
