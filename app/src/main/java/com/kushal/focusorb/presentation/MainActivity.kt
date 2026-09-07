@@ -204,25 +204,45 @@ fun FocusOrbApp(isAmbient: Boolean = false, viewModel: FocusViewModel = viewMode
                         }
                     }
 
+                    // ── Haptics locked to the supernova timeline ───────────
+                    // The visual runs 4000ms and only starts after a 400ms
+                    // screen-wake delay, so the waveform opens with 400ms of
+                    // silence and every beat below is quoted in real time from
+                    // the moment the session completes:
+                    //
+                    //    400ms  collapse begins  → rising anticipation rumble
+                    //   1200ms  detonation (t=0.2) → full-amplitude burst
+                    //   1700ms  star genesis      → soft shimmer taps
+                    //   3800ms  arrival (t≈1.0)   → crisp lock-in tap
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         val timings = longArrayOf(
-                            0, 
-                            50, 50, 50, 50, 50, 50, // Inversion building (0-300ms)
-                            0, 200, // Burst pop (300-500)
-                            300, // wait till 800ms
-                            100, 100, 100, 100, 100, 100, 100, 100 // Genesis gentle rumble
+                            400,                                          // screen wake
+                            50, 50, 50, 50, 50, 50, 50, 50,               // anticipation
+                            50, 50, 50, 50, 50, 50, 50, 50,               // (800ms total)
+                            220,                                          // DETONATION
+                            280,                                          // silence
+                            70, 230, 70, 230, 70, 230,                    // genesis shimmer
+                            1200,                                         // the voyage
+                            90                                            // lock-in
                         )
                         val amplitudes = intArrayOf(
                             0,
-                            30, 0, 70, 0, 150, 0, // Building up
-                            0, 255, // Burst pop
-                            0, // pause
-                            50, 0, 40, 0, 30, 0, 20, 0 // gentle fade out
+                            20, 0, 35, 0, 50, 0, 70, 0,                   // building
+                            95, 0, 125, 0, 160, 0, 200, 0,                // building
+                            255,                                          // DETONATION
+                            0,
+                            90, 0, 65, 0, 45, 0,                          // shimmer
+                            0,
+                            180                                           // lock-in
                         )
                         vibrator.vibrate(VibrationEffect.createWaveform(timings, amplitudes, -1))
                     } else {
                         @Suppress("DEPRECATION")
-                        val pattern = longArrayOf(0, 50, 50, 50, 50, 50, 50, 0, 200, 300, 100, 100, 100, 100, 100, 100)
+                        val pattern = longArrayOf(
+                            400, 50, 50, 50, 50, 50, 50, 50, 50,
+                            50, 50, 50, 50, 50, 50, 50, 50,
+                            220, 280, 70, 230, 70, 230, 70, 230, 1200, 90
+                        )
                         vibrator.vibrate(pattern, -1)
                     }
                 }
@@ -247,23 +267,25 @@ fun FocusOrbApp(isAmbient: Boolean = false, viewModel: FocusViewModel = viewMode
         Box(modifier = Modifier.fillMaxSize()) {
             GalaxyView(
                 earnedStars = uiState.earnedStars,
-                initialPan = targetGalaxyPan
+                initialPan = targetGalaxyPan,
+                // Arriving straight off a supernova, the voyage has already
+                // revealed these stars — replaying the entrance would break
+                // the handoff. Only animate when opened cold from the orb.
+                animateEntrance = uiState.sessionState != SessionState.COMPLETED
             )
             
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 16.dp)
-                    .background(Color.DarkGray.copy(alpha = 0.6f), shape = RoundedCornerShape(16.dp))
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                    .pointerInput(Unit) {
-                        detectTapGestures(onTap = { 
-                            isGalaxyView = false
-                            if (uiState.sessionState == SessionState.COMPLETED) {
-                                viewModel.resetSession()
-                            }
-                        })
+                    .clickable {
+                        isGalaxyView = false
+                        if (uiState.sessionState == SessionState.COMPLETED) {
+                            viewModel.resetSession()
+                        }
                     }
+                    .padding(16.dp) // Large outer touch target
+                    .background(Color.DarkGray.copy(alpha = 0.6f), shape = RoundedCornerShape(16.dp))
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 Text(
                     text = "Close",
@@ -479,6 +501,15 @@ data class Particle(val angle: Float, val speed: Float, val sizeMultiplier: Floa
 data class BurstParticle(val angle: Float, val speed: Float, val radius: Float, val alphaDecay: Float)
 data class Fracture(val mainPath: Path, val branches: List<Path>)
 
+/**
+ * A single volumetric shaft of light thrown out by the supernova detonation.
+ *
+ * @param lag Fraction of the ray phase to wait before this shaft appears —
+ *            staggering them makes the burst feel like an eruption rather
+ *            than a symmetric starburst stamp.
+ */
+data class LightRay(val angle: Float, val length: Float, val width: Float, val lag: Float)
+
 fun generateFracture(random: Random, startRadius: Float, endRadius: Float, startAngle: Float, center: Offset): Fracture {
     val mainPath = Path()
     val branches = mutableListOf<Path>()
@@ -650,7 +681,7 @@ fun FocusOrb(
     // Generate supernova burst particles (slower speed, higher decay for floating effect)
     val burstParticles = remember {
         val random = Random(100)
-        List(18) {
+        List(26) {
             BurstParticle(
                 angle = random.nextFloat() * 2 * Math.PI.toFloat(),
                 speed = 20f + random.nextFloat() * 60f,
@@ -659,14 +690,39 @@ fun FocusOrb(
             )
         }
     }
-    
-    // Star Genesis Scale Physics (delayed to start at 0.2f, peaks at 3.5f for Majestic Bask)
+
+    // Volumetric light rays fired at the moment of detonation. Staggered lags
+    // stop them reading as a single symmetric asterisk.
+    val lightRays = remember {
+        val random = Random(77)
+        List(16) {
+            LightRay(
+                angle = random.nextFloat() * 2 * Math.PI.toFloat(),
+                length = 0.55f + random.nextFloat() * 0.75f,
+                width = 1.5f + random.nextFloat() * 4.5f,
+                lag = random.nextFloat() * 0.18f
+            )
+        }
+    }
+
+    // Shared shimmer clock so the newborn star and the historical stars
+    // twinkle continuously into — and through — the galaxy handoff.
+    val starClockTransition = rememberInfiniteTransition(label = "starClock")
+    val starClock by starClockTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(7000, easing = LinearEasing), RepeatMode.Restart),
+        label = "starClockValue"
+    )
+
+    // Star Genesis Scale Physics — a punchier spring than a stock preset:
+    // it overshoots hard, then settles into the Majestic Bask.
     val starScale by animateFloatAsState(
         targetValue = if (isCompleted && supernovaTime.value >= 0.2f) 3.5f else 0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessVeryLow),
+        animationSpec = spring(dampingRatio = 0.55f, stiffness = 180f),
         label = "starGenesis"
     )
-    
+
     // Pulsating Aura
     val auraPulsate = rememberInfiniteTransition(label = "aura")
     val auraPulseScale by auraPulsate.animateFloat(
@@ -813,12 +869,23 @@ fun FocusOrb(
                 }
                 
                 // Stage 1: The Collapse (0.0f to 0.2f)
+                // Now in two beats — the orb draws a breath and swells slightly
+                // before it implodes. The anticipation is what sells the
+                // detonation that follows.
                 val coreScale = if (!isCompleted) {
                     breathingAnim.value
                 } else {
-                    androidx.compose.ui.util.lerp(breathingAnim.value, 0.2f, collapseProgress)
+                    val inhale = breathingAnim.value * 1.18f
+                    if (collapseProgress < 0.35f) {
+                        val a = FastOutSlowInEasing.transform(collapseProgress / 0.35f)
+                        androidx.compose.ui.util.lerp(breathingAnim.value, inhale, a)
+                    } else {
+                        // Cubic acceleration inward — slow release, violent finish.
+                        val a = (collapseProgress - 0.35f) / 0.65f
+                        androidx.compose.ui.util.lerp(inhale, 0.12f, a * a * a)
+                    }
                 }
-                
+
                 // Disappear the core entirely after the collapse completes
                 val coreAlpha = if (!isCompleted || t < 0.2f) 1f else 0f
                 
@@ -843,51 +910,160 @@ fun FocusOrb(
                     )
                 }
                 
+                val newStarIndex = kotlin.math.max(0, earnedStars.size - 1)
+                val newStarColor = getStarThemeColor(newStarIndex, currentDuration.starSize)
+                val screenSpan = kotlin.math.max(size.width, size.height)
+
+                // Stage 1.5: Shockwave rings (0.18f to 0.62f)
+                // Two rings at different speeds — a fast thin white leading edge
+                // and a slower, softer coloured wake behind it.
+                if (isCompleted && t >= 0.18f && t < 0.62f) {
+                    val sw = ((t - 0.18f) / 0.44f).coerceIn(0f, 1f)
+                    val maxRing = screenSpan * 0.62f
+
+                    val leadT = (sw / 0.62f).coerceAtMost(1f)
+                    if (leadT < 1f) {
+                        val e = 1f - (1f - leadT) * (1f - leadT) * (1f - leadT)
+                        drawCircle(
+                            color = Color.White.copy(alpha = (1f - leadT) * (1f - leadT) * 0.55f),
+                            radius = baseRadius * 0.1f + e * maxRing,
+                            center = center,
+                            style = Stroke(width = 0.6f + (1f - leadT) * 3f),
+                            blendMode = BlendMode.Screen
+                        )
+                    }
+
+                    // Wide and faint rather than narrow and solid — a thin,
+                    // opaque stroke reads as a drawn outline instead of an
+                    // expanding wave of energy.
+                    val e2 = 1f - (1f - sw) * (1f - sw)
+                    drawCircle(
+                        color = newStarColor.copy(alpha = (1f - sw) * (1f - sw) * 0.30f),
+                        radius = baseRadius * 0.05f + e2 * maxRing * 0.78f,
+                        center = center,
+                        style = Stroke(width = 2f + (1f - sw) * 14f),
+                        blendMode = BlendMode.Screen
+                    )
+                }
+
+                // Stage 1.75: Volumetric light rays (0.19f to 0.34f)
+                // Shafts stay anchored just outside the core and only their
+                // outer end travels, so they read as light lancing out of the
+                // star. Letting the inner end advance too made them detach and
+                // drift as loose grey sticks.
+                if (isCompleted && t >= 0.19f && t < 0.34f) {
+                    val rp = ((t - 0.19f) / 0.15f).coerceIn(0f, 1f)
+                    // Short and thick. Long thin shafts render as hairline
+                    // scratches across the face; keeping them close to the core
+                    // lets them fuse with its glow into one anisotropic burst.
+                    val maxLen = screenSpan * 0.20f
+                    val inner = baseRadius * 0.08f
+
+                    lightRays.forEach { ray ->
+                        val local = ((rp - ray.lag) / (1f - ray.lag)).coerceIn(0f, 1f)
+                        if (local <= 0f || local >= 1f) return@forEach
+
+                        val eased = 1f - (1f - local) * (1f - local) * (1f - local)
+                        val cosA = kotlin.math.cos(ray.angle.toDouble()).toFloat()
+                        val sinA = kotlin.math.sin(ray.angle.toDouble()).toFloat()
+                        val outer = inner + eased * maxLen * ray.length
+
+                        drawLine(
+                            color = lerp(Color.White, newStarColor, local)
+                                .copy(alpha = (1f - local) * (1f - local) * 0.85f),
+                            start = Offset(center.x + cosA * inner, center.y + sinA * inner),
+                            end = Offset(center.x + cosA * outer, center.y + sinA * outer),
+                            strokeWidth = ray.width * 1.15f * (1f - local * 0.5f),
+                            cap = StrokeCap.Round,
+                            blendMode = BlendMode.Screen
+                        )
+                    }
+                }
+
                 // Stage 2: The Burst Particle Emitter (0.2f to 0.8f)
                 if (isCompleted && t >= 0.2f && t < 0.8f) {
                     val pProgress = ((t - 0.2f) / 0.6f).coerceIn(0f, 1f)
                     val easedProgress = FastOutSlowInEasing.transform(pProgress)
-                    val targetStarIndex = kotlin.math.max(0, earnedStars.size - 1)
-                    val targetStarColor = getStarThemeColor(targetStarIndex, currentDuration.starSize)
-                    
+
                     burstParticles.forEach { particle ->
                         // Particles rapidly decelerate and fade
                         val currentAlpha = (1f - (pProgress * particle.alphaDecay)).coerceIn(0f, 1f)
-                        
+
                         if (currentAlpha > 0f) {
                             val distance = baseRadius * 0.2f + particle.speed * easedProgress * 3f
-                            val px = center.x + kotlin.math.cos(particle.angle.toDouble()).toFloat() * distance
-                            val py = center.y + kotlin.math.sin(particle.angle.toDouble()).toFloat() * distance
-                            
+                            val cosA = kotlin.math.cos(particle.angle.toDouble()).toFloat()
+                            val sinA = kotlin.math.sin(particle.angle.toDouble()).toFloat()
+                            val px = center.x + cosA * distance
+                            val py = center.y + sinA * distance
+
                             // Color transition from hot white to target star color as they expand
-                            val pColor = lerp(Color.White, targetStarColor, pProgress)
-                            
+                            val pColor = lerp(Color.White, newStarColor, pProgress)
+
+                            // Motion trail — longest at launch, gone by the time
+                            // the particle has spent its momentum.
+                            val trailLen = particle.speed * 0.7f * (1f - easedProgress)
+                            if (trailLen > 1f) {
+                                drawLine(
+                                    color = pColor.copy(alpha = currentAlpha * 0.5f),
+                                    start = Offset(px - cosA * trailLen, py - sinA * trailLen),
+                                    end = Offset(px, py),
+                                    strokeWidth = particle.radius * 0.9f,
+                                    cap = StrokeCap.Round,
+                                    blendMode = BlendMode.Screen
+                                )
+                            }
+
                             drawCircle(
                                 color = pColor.copy(alpha = currentAlpha),
                                 radius = particle.radius,
-                                center = Offset(px, py)
+                                center = Offset(px, py),
+                                blendMode = BlendMode.Screen
                             )
                         }
                     }
                 }
-                
+
+                // Stage 2.5: Detonation flash
+                // Deliberately brief — roughly 240ms, decaying cubically. Held
+                // any longer it stops reading as a flash and just veils the
+                // whole watch face in flat grey.
+                if (isCompleted && t >= 0.185f && t < 0.245f) {
+                    val f = 1f - ((t - 0.185f) / 0.06f).coerceIn(0f, 1f)
+                    drawRect(color = Color.White.copy(alpha = f * f * f * 0.85f))
+                }
+
                 // Stage 3 & 4: The Bask (0.4f to 0.6f) & The Voyage & Reveal (0.6f to 1.0f)
                 if (isCompleted && starScale > 0.01f) {
-                    val targetStarIndex = kotlin.math.max(0, earnedStars.size - 1)
-                    val targetStarColor = getStarThemeColor(targetStarIndex, currentDuration.starSize)
                     val baseStarRadius = with(density) { (currentDuration.starSize.sizeDp / 2).dp.toPx() }
-                    
+
                     val voyageProgress = ((t - 0.6f) / 0.4f).coerceIn(0f, 1f)
                     val easedVoyage = FastOutSlowInEasing.transform(voyageProgress)
-                    
+
                     // Hex Math for target slot (already calculated in finalGalaxyPan, but let's calculate current pan)
                     val hexSpacing = size.width * 0.085f
                     val currentPanX = androidx.compose.ui.util.lerp(0f, finalGalaxyPan.x, easedVoyage)
                     val currentPanY = androidx.compose.ui.util.lerp(0f, finalGalaxyPan.y, easedVoyage)
-                    
-                    val maxRadius = kotlin.math.max(size.width, size.height)
-                    val lensRadius = maxRadius
-                    
+
+                    val lensRadius = screenSpan
+
+                    // The dust field fades up as the voyage begins and is handed
+                    // off to GalaxyView at the same pan, so the two screens read
+                    // as one continuous space.
+                    if (voyageProgress > 0.001f) {
+                        drawGalaxyDust(
+                            pan = Offset(currentPanX, currentPanY),
+                            alpha = voyageProgress,
+                            twinkle = starClock
+                        )
+                    }
+
+                    // Unit vector along the direction the galaxy is sliding, used
+                    // to trail the incoming historical stars.
+                    val panLen = kotlin.math.sqrt(
+                        finalGalaxyPan.x * finalGalaxyPan.x + finalGalaxyPan.y * finalGalaxyPan.y
+                    )
+                    val streakLen = kotlin.math.sin(Math.PI.toFloat() * voyageProgress) * hexSpacing * 0.55f
+
                     // Stage 4 Reveal: Draw Historical Stars Sliding and Fading In
                     if (voyageProgress > 0.01f && earnedStars.size > 1) {
                         for (i in 0 until earnedStars.size - 1) {
@@ -924,37 +1100,63 @@ fun FocusOrb(
                             
                             val hBaseRadius = with(density) { (histSize.sizeDp / 2f).dp.toPx() }
                             val hColor = getStarThemeColor(i, histSize)
-                            
+                            val hAlpha = hTargetAlpha * voyageProgress
+
+                            // Motion streak trailing behind the slide, peaking
+                            // mid-voyage and gone by the time they settle.
+                            if (streakLen > 1f && panLen > 0.01f) {
+                                val ux = finalGalaxyPan.x / panLen
+                                val uy = finalGalaxyPan.y / panLen
+                                drawLine(
+                                    color = hColor.copy(alpha = hAlpha * 0.35f),
+                                    start = Offset(hFinalX - ux * streakLen, hFinalY - uy * streakLen),
+                                    end = Offset(hFinalX, hFinalY),
+                                    strokeWidth = hBaseRadius * hMag * 0.55f,
+                                    cap = StrokeCap.Round,
+                                    blendMode = BlendMode.Screen
+                                )
+                            }
+
                             drawCinematicStar(
                                 x = hFinalX, y = hFinalY,
                                 scale = hMag,
-                                alpha = hTargetAlpha * voyageProgress, // Fade in mapped to voyage
+                                alpha = hAlpha,
                                 baseRadius = hBaseRadius,
                                 themeColor = hColor,
-                                pulseAuraScale = 1f
+                                pulseAuraScale = 1f,
+                                twinkle = starClock + i * 0.381966f,
+                                spikeIntensity = voyageProgress
                             )
                         }
                     }
-                    
+
                     // Draw the New Star
                     // It is perfectly centered on screen, so it always sits at the peak of the fisheye lens
                     val maxBonusScale = 3.2f
                     val baseTargetScale = 0.35f
                     val targetMagnification = baseTargetScale + maxBonusScale * 1f // steepCurve is 1 at center
                     val currentScale = androidx.compose.ui.util.lerp(starScale, targetMagnification, easedVoyage)
-                    
+
+                    // Diffraction spikes bloom outward over the first ~200ms of
+                    // the star's life rather than snapping on with it.
+                    val newStarSpikes = ((t - 0.24f) / 0.2f).coerceIn(0f, 1f)
+
                     drawCinematicStar(
                         x = center.x, y = center.y,
                         scale = currentScale,
                         alpha = 1f, // The new star is always fully visible
                         baseRadius = baseStarRadius,
-                        themeColor = targetStarColor,
-                        pulseAuraScale = auraPulseScale
+                        themeColor = newStarColor,
+                        pulseAuraScale = auraPulseScale,
+                        twinkle = starClock + newStarIndex * 0.381966f,
+                        spikeIntensity = newStarSpikes
                     )
                 }
                 
-                // Draw Crystalline Fractures if damaged
-                if (orbHealth < 3 && fractures != null) {
+                // Draw Crystalline Fractures if damaged.
+                // Gated on coreAlpha so the cracks vanish with the orb they sit
+                // on, instead of hanging in empty space through the supernova.
+                if (orbHealth < 3 && coreAlpha > 0f && fractures != null) {
                     val activeFractures = listOf(
                         Pair(fractures!![0], fracture1Progress.value),
                         Pair(fractures!![1], fracture2Progress.value)
@@ -1175,15 +1377,65 @@ fun getStarThemeColor(index: Int, size: StarSize): Color {
 }
 
 @Composable
-fun GalaxyView(earnedStars: List<StarSize>, initialPan: Offset = Offset.Zero) {
+fun GalaxyView(
+    earnedStars: List<StarSize>,
+    initialPan: Offset = Offset.Zero,
+    animateEntrance: Boolean = true
+) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     val coroutineScope = rememberCoroutineScope()
-    
+
     var pan by remember { mutableStateOf(initialPan) }
     val flingAnimatable = remember { Animatable(initialPan, Offset.VectorConverter) }
     var flingJob: kotlinx.coroutines.Job? by remember { mutableStateOf(null) }
-    
+
     val coordinates = remember(earnedStars.size) { generateGalaxyLayout(earnedStars.size) }
+
+    // ── Ambient shimmer clock ────────────────────────────────────────────
+    // One shared linear ramp; each star reads it at its own phase offset.
+    val galaxyClock = rememberInfiniteTransition(label = "galaxyClock")
+    val twinkleClock by galaxyClock.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(7000, easing = LinearEasing), RepeatMode.Restart),
+        label = "twinkleClock"
+    )
+    val newestPulse by galaxyClock.animateFloat(
+        initialValue = 0.9f,
+        targetValue = 1.18f,
+        animationSpec = infiniteRepeatable(tween(2200, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "newestPulse"
+    )
+
+    // ── Entrance ─────────────────────────────────────────────────────────
+    // Skipped when we arrive straight off a supernova — the voyage has already
+    // faded these stars in, and popping them again would break the handoff.
+    val entrance = remember { Animatable(if (animateEntrance) 0f else 1f) }
+    LaunchedEffect(Unit) {
+        if (animateEntrance) {
+            entrance.animateTo(1f, animationSpec = tween(1100, easing = FastOutSlowInEasing))
+        }
+    }
+
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
+    val hexSpacing = screenWidthPx * 0.085f
+    val maxBaseDist = remember(coordinates, hexSpacing) {
+        var maxDist = 0f
+        coordinates.forEach { (q, r) ->
+            val baseX = hexSpacing * 3f / 2f * q
+            val baseY = hexSpacing * kotlin.math.sqrt(3f) * (r + q / 2f)
+            val dist = kotlin.math.sqrt(baseX * baseX + baseY * baseY)
+            if (dist > maxDist) maxDist = dist
+        }
+        maxDist
+    }
+    val maxPanRadius = if (maxBaseDist > 0f) maxBaseDist + screenWidthPx * 0.25f else screenWidthPx * 0.5f
+
+    fun clampPan(p: Offset): Offset {
+        val dist = kotlin.math.sqrt(p.x * p.x + p.y * p.y)
+        return if (dist > maxPanRadius) p * (maxPanRadius / dist) else p
+    }
 
     Canvas(
         modifier = Modifier
@@ -1206,7 +1458,7 @@ fun GalaxyView(earnedStars: List<StarSize>, initialPan: Offset = Offset.Zero) {
                             
                             if (drag != null && drag.pressed) {
                                 val change = drag.position - drag.previousPosition
-                                pan += change // Synchronous update! Perfectly smooth 60fps.
+                                pan = clampPan(pan + change)
                                 tracker.addPosition(drag.uptimeMillis, drag.position)
                                 drag.consume()
                             } else {
@@ -1219,7 +1471,10 @@ fun GalaxyView(earnedStars: List<StarSize>, initialPan: Offset = Offset.Zero) {
                         flingJob = coroutineScope.launch {
                             flingAnimatable.snapTo(pan)
                             flingAnimatable.animateDecay(velocityOffset, decay) {
-                                pan = this.value
+                                pan = clampPan(this.value)
+                                if (pan != this.value) { // Hit boundary
+                                    coroutineScope.launch { flingAnimatable.stop() }
+                                }
                             }
                         }
                     }
@@ -1234,10 +1489,24 @@ fun GalaxyView(earnedStars: List<StarSize>, initialPan: Offset = Offset.Zero) {
         val lensRadius = maxRadius
         // Hex spacing: outer rings extend past screen when centered
         val hexSpacing = size.width * 0.085f
-        
+
+        // Parallax dust sits behind everything and scrolls at a fraction of the
+        // pan, so the galaxy reads as a volume rather than a flat plane.
+        drawGalaxyDust(pan = pan, alpha = entrance.value, twinkle = twinkleClock)
+
+        // Staggered reveal: oldest stars land first, newest arrives last.
+        val starCount = earnedStars.size
+        val staggerWindow = 0.45f
+
         earnedStars.forEachIndexed { index, starSize ->
             val (q, r) = coordinates[index]
-            
+
+            val slot = if (starCount <= 1) 0f else index.toFloat() / (starCount - 1)
+            val entranceLocal = ((entrance.value - slot * staggerWindow) / (1f - staggerWindow))
+                .coerceIn(0f, 1f)
+            if (entranceLocal <= 0f) return@forEachIndexed
+            val entranceEased = FastOutSlowInEasing.transform(entranceLocal)
+
             // 1. Calculate absolute screen position using screen-relative spacing
             val baseX = hexSpacing * 3f / 2f * q
             val baseY = hexSpacing * kotlin.math.sqrt(3f) * (r + q / 2f)
@@ -1259,11 +1528,11 @@ fun GalaxyView(earnedStars: List<StarSize>, initialPan: Offset = Offset.Zero) {
             val magnification = baseScale + maxBonusScale * steepCurve  // 0.25 to 3.5
             
             // 4. No artificial fade — stars stay visible until hardware bezel clips them
-            val alpha = (1f - normalizedDist).coerceIn(0.3f, 1f)
-            
+            val alpha = (1f - normalizedDist).coerceIn(0.3f, 1f) * entranceEased
+
             // Skip invisible stars
             if (alpha < 0.01f) return@forEachIndexed
-            
+
             // 5. Aggressive fish-eye radial displacement
             //    pushBoost scales with magnification so center bubble shoves neighbors apart
             val fishEyeFactor = if (rawDist < 0.01f) 1f else {
@@ -1278,20 +1547,43 @@ fun GalaxyView(earnedStars: List<StarSize>, initialPan: Offset = Offset.Zero) {
             val baseStarRadius = with(density) { (starSize.sizeDp / 2f).dp.toPx() }
             val themeColor = getStarThemeColor(index, starSize)
             
-            // 6. Draw with physical scaling
+            // 6. Draw with physical scaling.
+            //    Stars scale up out of nothing as they enter, and the most
+            //    recently earned one keeps a slow breathing aura so your eye
+            //    is drawn to what you just collected.
             drawCinematicStar(
                 x = starScreenX,
                 y = starScreenY,
-                scale = magnification,
+                scale = magnification * androidx.compose.ui.util.lerp(0.35f, 1f, entranceEased),
                 alpha = alpha,
                 baseRadius = baseStarRadius,
-                themeColor = themeColor
+                themeColor = themeColor,
+                pulseAuraScale = if (index == earnedStars.lastIndex) newestPulse else 1f,
+                // Golden-ratio phase offset spreads the shimmer evenly, so the
+                // field never pulses as one block.
+                twinkle = twinkleClock + index * 0.381966f,
+                spikeIntensity = entranceEased
             )
         }
     }
 }
 
 // ── Pre-cached Drawing Objects (Prevents GC Thrashing at 60fps) ────────────
+//
+// Every star is drawn in a *unit* coordinate space and scaled up by the
+// transform stack, so each path and gradient below is built exactly once for
+// the lifetime of the process. Nothing in the star pipeline allocates per
+// frame — critical on a watch, where we render this up to 60 times a second.
+
+/**
+ * Radius, in unit space, of the coloured aura.
+ *
+ * On a magnified star this already covers a large fraction of the watch face,
+ * so there is deliberately no second, wider "bloom" layer — stacking one on top
+ * washed the black background out to grey once a few stars overlapped.
+ */
+const val AURA_RADIUS = 4.2f
+
 val cachedSparklePath = Path().apply {
     val r2 = 1f
     val innerR = 0.15f
@@ -1315,67 +1607,238 @@ val cachedCorePath = Path().apply {
     close()
 }
 
-val cachedAuraBrushes = mutableMapOf<Color, Brush>()
-fun getAuraBrush(themeColor: Color, radius: Float): Brush {
-    // We only cache the standard GalaxyView radius to prevent memory leaks from the breathing animation
-    if (radius == 4.2f) {
-        return cachedAuraBrushes.getOrPut(themeColor) {
-            Brush.radialGradient(
-                0.0f to themeColor.copy(alpha = 0.4f),
-                0.5f to themeColor.copy(alpha = 0.15f),
-                1.0f to Color.Transparent,
-                center = Offset.Zero,
-                radius = 4.2f
-            )
-        }
+/**
+ * Diffraction starburst — four long needles on the cardinal axes plus four
+ * short diagonals, all baked into a *single* Path.
+ *
+ * Rendering it as one path means a star costs one `drawPath` instead of
+ * eight, which is the difference between this reading as a lens flare and it
+ * dropping frames on a watch.
+ */
+val cachedStarburstPath = Path().apply {
+    /** Lays down one lens-shaped needle from the origin out to [length]. */
+    fun needle(angleDeg: Float, length: Float, halfWidth: Float) {
+        val a = Math.toRadians(angleDeg.toDouble())
+        val dx = kotlin.math.cos(a).toFloat()
+        val dy = kotlin.math.sin(a).toFloat()
+        // Waist control points sit at the midpoint, pushed out perpendicular.
+        val mx = dx * length * 0.5f
+        val my = dy * length * 0.5f
+        val px = -dy * halfWidth
+        val py = dx * halfWidth
+        moveTo(0f, 0f)
+        quadraticTo(mx + px, my + py, dx * length, dy * length)
+        quadraticTo(mx - px, my - py, 0f, 0f)
+        close()
     }
-    
-    // For the main breathing star, we create it dynamically (only 1 per frame, so it's cheap)
-    return Brush.radialGradient(
-        0.0f to themeColor.copy(alpha = 0.4f),
-        0.5f to themeColor.copy(alpha = 0.15f),
+
+    // Long cardinal spikes
+    needle(0f, 1f, 0.075f)
+    needle(90f, 1f, 0.075f)
+    needle(180f, 1f, 0.075f)
+    needle(270f, 1f, 0.075f)
+    // Short diagonal spikes
+    needle(45f, 0.42f, 0.05f)
+    needle(135f, 0.42f, 0.05f)
+    needle(225f, 0.42f, 0.05f)
+    needle(315f, 0.42f, 0.05f)
+}
+
+private val starAuraCache = HashMap<Color, Brush>()
+
+/**
+ * Returns the cached aura gradient for [themeColor], building it on first use.
+ *
+ * Deliberately avoids `getOrPut` — its lambda captures [themeColor] and would
+ * allocate a closure on every star, every frame. The palette is a fixed handful
+ * of colours, so this map never grows beyond single digits.
+ */
+fun starAuraBrush(themeColor: Color): Brush {
+    starAuraCache[themeColor]?.let { return it }
+    // Weighted hard toward the core. A magnified star's aura spans a large
+    // part of the watch face, so a gentle falloff makes ten of them pool into
+    // grey fog and erase the night sky behind them. Concentrating the energy
+    // in the inner ~30% keeps the background truly black and, by raising
+    // contrast, makes each star read as brighter rather than dimmer.
+    val created = Brush.radialGradient(
+        0.0f to Color.White.copy(alpha = 0.50f),
+        0.12f to themeColor.copy(alpha = 0.42f),
+        0.30f to themeColor.copy(alpha = 0.12f),
+        0.60f to themeColor.copy(alpha = 0.03f),
         1.0f to Color.Transparent,
         center = Offset.Zero,
-        radius = radius
+        radius = AURA_RADIUS
     )
+    starAuraCache[themeColor] = created
+    return created
+}
+
+// ── Parallax Dust Field ────────────────────────────────────────────────────
+// A drifting layer of faint motes behind the galaxy. Each mote scrolls at its
+// own fraction of the pan offset, so panning reads as depth rather than as a
+// flat sheet of stars sliding around.
+
+data class DustMote(
+    val x: Float,          // normalised position in the wrap field
+    val y: Float,
+    val radius: Float,
+    val alpha: Float,
+    val parallax: Float    // 0 = pinned to the screen, 1 = moves with the stars
+)
+
+val GALAXY_DUST: List<DustMote> = run {
+    val random = Random(7)
+    List(48) {
+        DustMote(
+            x = random.nextFloat(),
+            y = random.nextFloat(),
+            radius = 0.4f + random.nextFloat() * 1.3f,
+            alpha = 0.10f + random.nextFloat() * 0.35f,
+            parallax = 0.18f + random.nextFloat() * 0.42f
+        )
+    }
+}
+
+/**
+ * Draws the parallax dust field for a given [pan].
+ *
+ * Positions wrap modulo a field slightly larger than the screen, which gives an
+ * effectively infinite starfield for the cost of 48 tiny circles.
+ */
+fun DrawScope.drawGalaxyDust(pan: Offset, alpha: Float, twinkle: Float) {
+    if (alpha <= 0.01f) return
+    val fieldW = size.width * 2.2f
+    val fieldH = size.height * 2.2f
+    val insetX = (fieldW - size.width) / 2f
+    val insetY = (fieldH - size.height) / 2f
+
+    GALAXY_DUST.forEachIndexed { i, mote ->
+        var mx = (mote.x * fieldW + pan.x * mote.parallax) % fieldW
+        if (mx < 0f) mx += fieldW
+        var my = (mote.y * fieldH + pan.y * mote.parallax) % fieldH
+        if (my < 0f) my += fieldH
+
+        val shimmer = 0.55f + 0.45f * kotlin.math.sin((twinkle + i * 0.137f) * 2f * Math.PI.toFloat())
+        drawCircle(
+            color = Color.White,
+            radius = mote.radius,
+            center = Offset(mx - insetX, my - insetY),
+            alpha = mote.alpha * shimmer * alpha
+        )
+    }
 }
 // ─────────────────────────────────────────────────────────────────────────
 
+/**
+ * Renders a single star.
+ *
+ * Layered outward-in: a wide bloom, a coloured aura, a two-tone diffraction
+ * starburst, the sparkle body, and a hot white core. The heavier layers are
+ * culled by [scale], so distant stars in the galaxy stay cheap while the one
+ * under the fish-eye lens gets the full treatment.
+ *
+ * @param twinkle        Continuous phase in turns. Offset it per star so no two
+ *                       shimmer in lockstep.
+ * @param spikeIntensity Scales the diffraction burst; 0 removes it entirely.
+ *                       Ramped up during a star's birth so the spikes bloom out.
+ */
 fun DrawScope.drawCinematicStar(
     x: Float, y: Float,
     scale: Float,
     alpha: Float,
     baseRadius: Float,
     themeColor: Color,
-    pulseAuraScale: Float = 1f
+    pulseAuraScale: Float = 1f,
+    twinkle: Float = 0f,
+    spikeIntensity: Float = 1f
 ) {
     if (alpha < 0.01f || scale < 0.01f) return
+
+    val phase = twinkle * 2f * Math.PI.toFloat()
+    // Three incommensurate frequencies keep the shimmer from looking like a
+    // metronome — brightness, spike length and sway never quite line up.
+    val shimmer = 0.82f + 0.18f * kotlin.math.sin(phase)
+    val spikeSpan = (0.72f + 0.34f * kotlin.math.sin(phase * 1.37f + 1.1f)) * spikeIntensity
+    val sway = kotlin.math.sin(phase * 0.63f) * 7f
+
+    val unit = scale * baseRadius
+
     withTransform({
         translate(left = x, top = y)
         // Scale by baseRadius here so our static paths are sized perfectly
-        scale(scaleX = scale * baseRadius, scaleY = scale * baseRadius, pivot = Offset.Zero)
+        scale(scaleX = unit, scaleY = unit, pivot = Offset.Zero)
     }) {
-        // Aura
-        val auraRadius = 4.2f * pulseAuraScale
-        drawCircle(
-            brush = getAuraBrush(themeColor, auraRadius),
-            center = Offset.Zero,
-            radius = auraRadius,
-            alpha = alpha
-        )
-        
-        // Sparkle
+        // ── Aura ─────────────────────────────────────────────────────────
+        // Pulsing is applied as a nested transform rather than by rebuilding
+        // the gradient, which is what lets the brush stay cached.
+        withTransform({ scale(pulseAuraScale, pulseAuraScale, Offset.Zero) }) {
+            drawCircle(
+                brush = starAuraBrush(themeColor),
+                center = Offset.Zero,
+                radius = AURA_RADIUS,
+                alpha = alpha
+            )
+        }
+
+        // ── Diffraction spikes ───────────────────────────────────────────
+        // Drawn twice: a wider coloured pass for the chromatic bleed, then a
+        // shorter white pass for the hot centre line.
+        //
+        // Kept deliberately short. These are multiplied by the lens
+        // magnification, so a value that looks reasonable on a distant star
+        // spans the whole watch face once it reaches the centre. Reserved for
+        // stars the lens has actually magnified, so the outer field stays as
+        // clean points of light.
+        if (spikeSpan > 0.02f && scale > 0.9f) {
+            val spikeFade = ((scale - 0.9f) / 1.2f).coerceIn(0f, 1f)
+            withTransform({
+                rotate(degrees = sway, pivot = Offset.Zero)
+                scale(2.2f * spikeSpan, 2.2f * spikeSpan, Offset.Zero)
+            }) {
+                drawPath(
+                    path = cachedStarburstPath,
+                    color = themeColor,
+                    alpha = alpha * 0.42f * spikeFade * shimmer,
+                    blendMode = BlendMode.Screen
+                )
+            }
+            withTransform({
+                rotate(degrees = sway, pivot = Offset.Zero)
+                scale(1.3f * spikeSpan, 1.3f * spikeSpan, Offset.Zero)
+            }) {
+                drawPath(
+                    path = cachedStarburstPath,
+                    color = Color.White,
+                    alpha = alpha * 0.5f * spikeFade,
+                    blendMode = BlendMode.Screen
+                )
+            }
+        }
+
+        // ── Sparkle body ─────────────────────────────────────────────────
         drawPath(
             path = cachedSparklePath,
             color = themeColor,
-            alpha = alpha * 0.4f
+            alpha = alpha * 0.45f
         )
-        
-        // Core
+
+        // ── Core ─────────────────────────────────────────────────────────
         drawPath(
             path = cachedCorePath,
             color = Color.White,
-            alpha = alpha
+            alpha = alpha * (0.85f + 0.15f * shimmer)
         )
+
+        // ── Hot centre ───────────────────────────────────────────────────
+        // Screen-blended so it blows out to pure white against the core.
+        if (scale > 0.9f) {
+            drawCircle(
+                color = Color.White,
+                center = Offset.Zero,
+                radius = 0.30f,
+                alpha = alpha,
+                blendMode = BlendMode.Screen
+            )
+        }
     }
 }

@@ -71,7 +71,7 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun loadStars() {
-        val starsString = prefs.getString("earned_stars_v2", null)
+        val starsString = prefs.getString("earned_stars_v3", null)
         val stars = if (starsString.isNullOrEmpty()) {
             emptyList()
         } else {
@@ -84,7 +84,7 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun saveStars(stars: List<StarSize>) {
         val starsString = stars.joinToString(",") { it.name }
-        prefs.edit().putString("earned_stars_v2", starsString).apply()
+        prefs.edit().putString("earned_stars_v3", starsString).apply()
     }
 
     fun selectDuration(index: Int) {
