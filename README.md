@@ -7,7 +7,7 @@
 
 # FocusOrb
 
-**An anti-distraction system for Wear OS + Android.**
+**An anti distraction system for Wear OS + Android.**
 
 Start a focus session on your watch, and your phone becomes your shield — blocking distracting apps in real-time and punishing you if you stray. Complete a session to earn stars and build your personal galaxy.
 
