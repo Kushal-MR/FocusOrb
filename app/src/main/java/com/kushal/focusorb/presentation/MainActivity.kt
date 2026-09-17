@@ -16,22 +16,14 @@ import androidx.activity.ComponentActivity
 import androidx.wear.ambient.AmbientLifecycleObserver
 import androidx.activity.compose.setContent
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.*
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.splineBasedDecay
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -40,10 +32,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -75,13 +63,31 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.input.pointer.util.VelocityTracker
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Star
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.ScalingLazyListState
+import androidx.wear.compose.foundation.lazy.itemsIndexed
+import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
+import androidx.wear.compose.material.Chip
+import androidx.wear.compose.material.ChipDefaults
+import androidx.wear.compose.material.CompactChip
+import androidx.wear.compose.material.CompactButton
+import androidx.wear.compose.material.ButtonDefaults
+import androidx.wear.compose.material.Icon
+import androidx.wear.compose.material.MaterialTheme
+import androidx.wear.compose.material.PositionIndicator
+import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
+import androidx.wear.compose.material.TimeText
+import androidx.wear.compose.material.Vignette
+import androidx.wear.compose.material.VignettePosition
 import androidx.wear.tooling.preview.devices.WearDevices
 import com.kushal.focusorb.presentation.theme.FocusOrbTheme
 import kotlinx.coroutines.delay
@@ -264,38 +270,20 @@ fun FocusOrbApp(isAmbient: Boolean = false, viewModel: FocusViewModel = viewMode
     var targetGalaxyPan by remember { mutableStateOf(Offset.Zero) }
 
     if (isGalaxyView) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            GalaxyView(
-                earnedStars = uiState.earnedStars,
-                initialPan = targetGalaxyPan,
-                // Arriving straight off a supernova, the voyage has already
-                // revealed these stars — replaying the entrance would break
-                // the handoff. Only animate when opened cold from the orb.
-                animateEntrance = uiState.sessionState != SessionState.COMPLETED
-            )
-            
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .clickable {
-                        isGalaxyView = false
-                        if (uiState.sessionState == SessionState.COMPLETED) {
-                            viewModel.resetSession()
-                        }
-                    }
-                    .padding(16.dp) // Large outer touch target
-                    .background(Color.DarkGray.copy(alpha = 0.6f), shape = RoundedCornerShape(16.dp))
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                Text(
-                    text = "Close",
-                    color = Color.White.copy(alpha = 0.9f),
-                    fontFamily = FontFamily.SansSerif,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
-                )
+        GalaxyScreen(
+            earnedStars = uiState.earnedStars,
+            initialPan = targetGalaxyPan,
+            // Arriving straight off a supernova, the voyage has already
+            // revealed these stars — replaying the entrance would break
+            // the handoff. Only animate when opened cold from the orb.
+            animateEntrance = uiState.sessionState != SessionState.COMPLETED,
+            onClose = {
+                isGalaxyView = false
+                if (uiState.sessionState == SessionState.COMPLETED) {
+                    viewModel.resetSession()
+                }
             }
-        }
+        )
     } else {
         // ── Two-page HorizontalPager ─────────────────────────────────
         // Page 0: The Focus Orb
@@ -303,7 +291,14 @@ fun FocusOrbApp(isAmbient: Boolean = false, viewModel: FocusViewModel = viewMode
         val isIdle = uiState.sessionState == SessionState.IDLE
         val pagerState = rememberPagerState(initialPage = 0, pageCount = { if (isIdle) 2 else 1 })
         val coroutineScope = rememberCoroutineScope()
-        
+
+        // Hoisted so the Scaffold can drive the scroll indicator on the arc
+        // while the list itself lives a level down, and so the list opens
+        // already centred on whatever duration is currently selected.
+        val durationListState = rememberScalingLazyListState(
+            initialCenterItemIndex = uiState.selectedDurationIndex
+        )
+
         // Auto-snap back to page 0 when a session starts
         LaunchedEffect(isIdle) {
             if (!isIdle && pagerState.currentPage != 0) {
@@ -311,188 +306,240 @@ fun FocusOrbApp(isAmbient: Boolean = false, viewModel: FocusViewModel = viewMode
             }
         }
 
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxSize(),
-            beyondViewportPageCount = 1
-        ) { page ->
-            when (page) {
-                0 -> {
-                    // ── Main Orb Page ──────────────────────────────────────
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black)
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onTap = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        viewModel.toggleSession()
+        val onDurationPage = pagerState.currentPage == 1
+        // The clock is native furniture and belongs on every ordinary screen,
+        // but it would sit on top of the supernova and the shatter. Those are
+        // the two moments the app is asking to be watched, so it steps aside.
+        val showTimeText = !isAmbient &&
+            uiState.sessionState != SessionState.COMPLETED &&
+            uiState.sessionState != SessionState.SHATTERED
+
+        Scaffold(
+            timeText = { if (showTimeText) TimeText() },
+            vignette = { if (onDurationPage) Vignette(vignettePosition = VignettePosition.TopAndBottom) },
+            positionIndicator = { if (onDurationPage) PositionIndicator(durationListState) }
+        ) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                beyondViewportPageCount = 1
+            ) { page ->
+                when (page) {
+                    0 -> {
+                        // ── Main Orb Page ──────────────────────────────────────
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black)
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onTap = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            viewModel.toggleSession()
+                                        },
+                                        onLongPress = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            viewModel.resetSession()
+                                        }
+                                    )
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            FocusOrb(
+                                isAmbient = isAmbient,
+                                progress = uiState.progress,
+                                timeRemainingMs = uiState.timeRemainingMs,
+                                sessionState = uiState.sessionState,
+                                orbHealth = uiState.orbHealth,
+                                currentDuration = uiState.currentDuration,
+                                earnedStars = uiState.earnedStars,
+                                onTransitionToGalaxy = { finalPan ->
+                                    targetGalaxyPan = finalPan
+                                    isGalaxyView = true
+                                }
+                            )
+
+                            // Bottom centre is the only spot on a round display
+                            // with full width to spare — the top arc belongs to
+                            // the clock, which is where this control used to sit.
+                            if (isIdle) {
+                                CompactChip(
+                                    onClick = { isGalaxyView = true },
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .padding(bottom = 8.dp),
+                                    colors = ChipDefaults.secondaryChipColors(
+                                        backgroundColor = Color.White.copy(alpha = 0.12f),
+                                        contentColor = Color.White
+                                    ),
+                                    icon = {
+                                        Icon(
+                                            imageVector = Icons.Filled.Star,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
                                     },
-                                    onLongPress = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        viewModel.resetSession()
+                                    label = {
+                                        Text(
+                                            text = "Galaxy",
+                                            style = MaterialTheme.typography.button
+                                        )
                                     }
-                                )
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        FocusOrb(
-                            isAmbient = isAmbient,
-                            progress = uiState.progress,
-                            timeRemainingMs = uiState.timeRemainingMs,
-                            sessionState = uiState.sessionState,
-                            orbHealth = uiState.orbHealth,
-                            currentDuration = uiState.currentDuration,
-                            earnedStars = uiState.earnedStars,
-                            onTransitionToGalaxy = { finalPan -> 
-                                targetGalaxyPan = finalPan
-                                isGalaxyView = true 
-                            }
-                        )
-                        
-                        if (isIdle) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopCenter)
-                                    .padding(top = 16.dp)
-                                    .background(Color.DarkGray.copy(alpha = 0.6f), shape = RoundedCornerShape(16.dp))
-                                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                                    .pointerInput(Unit) {
-                                        detectTapGestures(onTap = { isGalaxyView = true })
-                                    }
-                            ) {
-                                Text(
-                                    text = "View Galaxy",
-                                    color = Color.White.copy(alpha = 0.9f),
-                                    fontFamily = FontFamily.SansSerif,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
                                 )
                             }
                         }
                     }
-                }
-                1 -> {
-                    // ── Duration Selection Menu ───────────────────────────
-                    DurationSelectionPage(
-                        selectedIndex = uiState.selectedDurationIndex,
-                        onSelect = { index ->
-                            viewModel.selectDuration(index)
-                            coroutineScope.launch {
-                                pagerState.animateScrollToPage(0)
+                    1 -> {
+                        // ── Duration Selection Menu ───────────────────────────
+                        DurationSelectionPage(
+                            selectedIndex = uiState.selectedDurationIndex,
+                            listState = durationListState,
+                            onSelect = { index ->
+                                viewModel.selectDuration(index)
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(0)
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+// ── Galaxy Screen ───────────────────────────────────────────────────────
+/**
+ * The galaxy, plus its dismiss affordance.
+ *
+ * Wear's usual swipe-to-dismiss is unavailable here: [GalaxyView] consumes
+ * horizontal drags to pan the star field, so the gesture would fight itself.
+ * An explicit button is the honest answer, parked at bottom centre where it
+ * clears both the bezel and the stars.
+ */
+@Composable
+fun GalaxyScreen(
+    earnedStars: List<StarSize>,
+    initialPan: Offset,
+    animateEntrance: Boolean,
+    onClose: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        GalaxyView(
+            earnedStars = earnedStars,
+            initialPan = initialPan,
+            animateEntrance = animateEntrance
+        )
+
+        CompactButton(
+            onClick = onClose,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 8.dp),
+            colors = ButtonDefaults.secondaryButtonColors(
+                backgroundColor = Color.White.copy(alpha = 0.14f),
+                contentColor = Color.White
+            )
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Close,
+                contentDescription = "Close galaxy",
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+}
+
 // ── Duration Selection Page ─────────────────────────────────────────────
+
+/** Representative colour per reward tier, drawn from the galaxy palette. */
+fun starTierColor(size: StarSize): Color = when (size) {
+    StarSize.SMALL -> Color(0xFF00BCD4)   // Rich Cyan
+    StarSize.MEDIUM -> Color(0xFF7B68EE)  // Medium Slate Blue
+    StarSize.LARGE -> Color(0xFF00FA9A)   // Medium Spring Green
+    StarSize.EPIC -> Color(0xFFFFFACD)    // Glowing Golden White
+}
+
+/** Human-readable name for a reward tier. */
+fun starTierLabel(size: StarSize): String = when (size) {
+    StarSize.SMALL -> "Small Star"
+    StarSize.MEDIUM -> "Medium Star"
+    StarSize.LARGE -> "Large Star"
+    StarSize.EPIC -> "Epic Star"
+}
+
+/**
+ * Duration picker, built as a [ScalingLazyColumn] of chips.
+ *
+ * The previous flat Column ran edge to edge, which put the corners of every
+ * row underneath the bezel and left the header clipped against the top of the
+ * display. ScalingLazyColumn is the Wear idiom for exactly this: it scales and
+ * fades rows toward the rim, so the list stays legible inside the circle and
+ * the curvature becomes part of the design instead of something fighting it.
+ */
 @Composable
 fun DurationSelectionPage(
     selectedIndex: Int,
+    listState: ScalingLazyListState,
     onSelect: (Int) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
-    
-    Box(
+
+    ScalingLazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black),
-        contentAlignment = Alignment.Center
+        state = listState,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 32.dp)
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(horizontal = 24.dp)
-        ) {
-            Text(
-                text = "SESSION",
-                color = Color.White.copy(alpha = 0.4f),
-                fontFamily = FontFamily.SansSerif,
-                fontWeight = FontWeight.Medium,
-                fontSize = 10.sp,
-                letterSpacing = 3.sp
+        // No list header here on purpose. The screen holds four chips that each
+        // read "N min", so a title adds nothing — and as the first item it was
+        // scrolling up underneath the system clock, which read as a glitch.
+        itemsIndexed(AVAILABLE_DURATIONS) { index, duration ->
+            val isSelected = index == selectedIndex
+            val tier = starTierColor(duration.starSize)
+
+            // Selection is a tinted fill rather than a solid accent: a
+            // full-strength chip is shouting on a black watch face at night.
+            val background by animateColorAsState(
+                targetValue = if (isSelected) tier.copy(alpha = 0.22f) else Color(0xFF1A1B1E),
+                animationSpec = tween(250),
+                label = "chipBackground"
             )
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            AVAILABLE_DURATIONS.forEachIndexed { index, duration ->
-                val isSelected = index == selectedIndex
-                val bgAlpha by animateFloatAsState(
-                    targetValue = if (isSelected) 0.15f else 0f,
-                    animationSpec = tween(250),
-                    label = "bgAlpha"
-                )
-                val textAlpha by animateFloatAsState(
-                    targetValue = if (isSelected) 1f else 0.5f,
-                    animationSpec = tween(250),
-                    label = "textAlpha"
-                )
-                
-                val starLabel = when (duration.starSize) {
-                    StarSize.SMALL -> "Small Star"
-                    StarSize.MEDIUM -> "Medium Star"
-                    StarSize.LARGE -> "Large Star"
-                    StarSize.EPIC -> "Epic Star"
+
+            Chip(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onSelect(index)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ChipDefaults.chipColors(
+                    backgroundColor = background,
+                    contentColor = if (isSelected) Color.White else Color.White.copy(alpha = 0.75f),
+                    secondaryContentColor = if (isSelected) tier else Color.White.copy(alpha = 0.45f),
+                    iconColor = if (isSelected) tier else Color.White.copy(alpha = 0.35f)
+                ),
+                icon = {
+                    Icon(
+                        imageVector = Icons.Filled.Star,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp)
+                    )
+                },
+                label = {
+                    Text(
+                        text = "${duration.minutes} min",
+                        style = MaterialTheme.typography.button
+                    )
+                },
+                secondaryLabel = {
+                    Text(
+                        text = starTierLabel(duration.starSize),
+                        style = MaterialTheme.typography.caption2
+                    )
                 }
-                
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            Color.White.copy(alpha = bgAlpha),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        .clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onSelect(index)
-                        }
-                        .padding(vertical = 10.dp, horizontal = 16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = "${duration.minutes}",
-                            color = Color.White.copy(alpha = textAlpha),
-                            fontFamily = FontFamily.SansSerif,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "min",
-                            color = Color.White.copy(alpha = textAlpha * 0.6f),
-                            fontFamily = FontFamily.SansSerif,
-                            fontWeight = FontWeight.Light,
-                            fontSize = 12.sp
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "·",
-                            color = Color.White.copy(alpha = textAlpha * 0.3f),
-                            fontSize = 14.sp
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = starLabel,
-                            color = Color.White.copy(alpha = textAlpha * 0.5f),
-                            fontFamily = FontFamily.SansSerif,
-                            fontWeight = FontWeight.Normal,
-                            fontSize = 11.sp
-                        )
-                    }
-                }
-                
-                if (index < AVAILABLE_DURATIONS.size - 1) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                }
-            }
+            )
         }
     }
 }
@@ -1240,33 +1287,27 @@ fun FocusOrb(
             val progressVal = shatterProgress.value
             Text(
                 text = "Focus Lost",
+                style = MaterialTheme.typography.title2,
                 color = Color.White.copy(alpha = progressVal),
-                fontFamily = FontFamily.SansSerif,
-                fontWeight = FontWeight.Medium,
-                fontSize = 20.sp,
                 modifier = Modifier.align(Alignment.Center)
             )
         } else if (isIdle) {
-            // Clean bottom text showing selected duration
+            // Bottom padding clears the Galaxy chip parked below it.
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 28.dp),
+                    .padding(bottom = 48.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "${currentDuration.minutes} Min",
-                    color = Color.White.copy(alpha = 0.9f),
-                    fontFamily = FontFamily.SansSerif,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 18.sp
+                    text = "${currentDuration.minutes} min",
+                    style = MaterialTheme.typography.title3,
+                    color = Color.White
                 )
                 Text(
-                    text = "Tap to begin • Swipe to change",
-                    color = Color.White.copy(alpha = 0.4f),
-                    fontFamily = FontFamily.SansSerif,
-                    fontWeight = FontWeight.Light,
-                    fontSize = 9.sp,
+                    text = "Tap to begin · Swipe to change",
+                    style = MaterialTheme.typography.caption3,
+                    color = Color.White.copy(alpha = 0.55f),
                     modifier = Modifier.padding(top = 2.dp)
                 )
             }
@@ -1276,13 +1317,11 @@ fun FocusOrb(
             val minutes = totalSeconds / 60
             val seconds = totalSeconds % 60
             val timeString = String.format("%02d:%02d", minutes, seconds)
-    
+
             Text(
                 text = timeString,
-                color = Color.White.copy(alpha = 0.7f),
-                fontFamily = FontFamily.SansSerif,
-                fontWeight = FontWeight.Light,
-                fontSize = 18.sp,
+                style = MaterialTheme.typography.title2,
+                color = Color.White.copy(alpha = 0.85f),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 32.dp)
