@@ -1,7 +1,7 @@
 package com.kushal.focusorb.ui
 
 /**
- * Represents a single distractable application entry in the blocklist manager UI.
+ * A well-known distracting app, used to seed the dashboard's suggestions.
  *
  * @property displayName  Human-readable app name shown in the dashboard row.
  * @property packageName  Android package identifier used for blocklist matching.
@@ -12,9 +12,10 @@ data class DistractionApp(
 )
 
 /**
- * Pre-populated catalog of common distraction targets.
- * The UI will render these as toggleable rows; the user's
- * on/off state is persisted via [com.kushal.focusorb.BlocklistStore].
+ * Common time sinks, offered on the dashboard as one-tap "Suggested" blocks.
+ * Only the ones actually installed are shown; anything else can be added
+ * through the full app picker. Choices persist via
+ * [com.kushal.focusorb.BlocklistStore].
  */
 val DEFAULT_DISTRACTION_APPS = listOf(
     DistractionApp("WhatsApp",   "com.whatsapp"),

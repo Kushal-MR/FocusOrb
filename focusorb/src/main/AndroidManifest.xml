@@ -13,6 +13,15 @@
          shield while this app is in the background (Android 12+). -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- See apps with a launcher icon, so they can be offered in the blocklist
+         picker. Narrower than QUERY_ALL_PACKAGES: nothing else is visible. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
