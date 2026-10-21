@@ -102,6 +102,11 @@ class FocusShieldService : Service() {
                 if (SessionStateStore.hasExpired(this@FocusShieldService)) {
                     Log.w(TAG, "Session expired without an end signal — standing down.")
                     SessionStateStore.endSession(this@FocusShieldService)
+                    SessionHistoryStore.onSessionEnded(
+                        this@FocusShieldService,
+                        SessionStateStore.currentSessionId(this@FocusShieldService),
+                        SessionHistoryStore.Outcome.EXPIRED
+                    )
                 }
                 stopSelf()
                 return
@@ -116,7 +121,18 @@ class FocusShieldService : Service() {
                 val last = lastHitAt
                 if (last == null || now - last >= POISON_TICK_MS) {
                     lastHitAt = now
-                    Log.d(TAG, if (last == null) "DISTRACTION: $foreground" else "POISON TICK: still in $foreground")
+                    if (last == null) {
+                        Log.d(TAG, "DISTRACTION: $foreground")
+                        // Count the visit, not the ticks: three poison ticks in
+                        // one app are still one distraction.
+                        SessionHistoryStore.onDistraction(
+                            this@FocusShieldService,
+                            SessionStateStore.currentSessionId(this@FocusShieldService),
+                            foreground
+                        )
+                    } else {
+                        Log.d(TAG, "POISON TICK: still in $foreground")
+                    }
                     launch { WatchBridgeManager.sendDistractionSignal(this@FocusShieldService) }
                 }
             } else {

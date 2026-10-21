@@ -39,8 +39,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.kushal.focusorb.BlocklistStore
+import com.kushal.focusorb.FocusShieldService
 import com.kushal.focusorb.InstalledApp
 import com.kushal.focusorb.InstalledAppsRepository
+import com.kushal.focusorb.SessionHistoryStore
+import com.kushal.focusorb.SessionStateStore
 
 // ── Color palette (minimalistic premium dark mode) ───────────────────────
 // Internal so the other dashboard sections in ui/ draw from the same palette.
@@ -69,9 +72,26 @@ fun FocusOrbDashboard() {
     // Re-checked every time the Activity resumes (e.g., returning from Settings).
     var setupStatus by remember { mutableStateOf(SetupStatus.read(context)) }
 
+    // ── Session history ──────────────────────────────────────────────
+    // Sessions are recorded in the background while the user is elsewhere,
+    // so refresh whenever they come back to the dashboard.
+    var history by remember { mutableStateOf(SessionHistoryStore.entries(context)) }
+    var week by remember { mutableStateOf(SessionHistoryStore.weekSummary(context)) }
+    var openSessionId by remember { mutableStateOf<Long?>(null) }
+
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             setupStatus = SetupStatus.read(context)
+            history = SessionHistoryStore.entries(context)
+            week = SessionHistoryStore.weekSummary(context)
+            openSessionId = SessionStateStore.currentSessionId(context)
+                .takeIf { SessionStateStore.isSessionActive(context) }
+
+            // The shield can be gone while the session is still live — an app
+            // update kills the process, and START_STICKY does not cover that.
+            // We're in the foreground here, so re-raising it is always allowed,
+            // and starting an already-running shield is a no-op.
+            if (openSessionId != null) FocusShieldService.start(context)
         }
     }
 
@@ -156,7 +176,17 @@ fun FocusOrbDashboard() {
 
         // ── Setup checklist ──────────────────────────────────────────
         item {
-            SetupSection(status = setupStatus, context = context)
+            SetupSection(status = setupStatus, context = context, sessionActive = openSessionId != null)
+        }
+
+        // ── History ──────────────────────────────────────────────────
+        item {
+            HistorySection(
+                entries = history,
+                week = week,
+                openSessionId = openSessionId,
+                labelFor = { pkg -> installedByPackage[pkg]?.label ?: pkg }
+            )
         }
 
         // ── Blocked apps ─────────────────────────────────────────────

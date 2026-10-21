@@ -68,10 +68,14 @@ data class SetupStatus(
     }
 }
 
+/**
+ * @param sessionActive A session is running right now, so the "ready" card
+ *                      reports that instead of inviting the user to start one.
+ */
 @Composable
-fun SetupSection(status: SetupStatus, context: Context) {
+fun SetupSection(status: SetupStatus, context: Context, sessionActive: Boolean) {
     if (status.isComplete) {
-        ShieldReadyCard()
+        ShieldReadyCard(sessionActive)
         return
     }
 
@@ -153,7 +157,7 @@ private fun SetupStep(title: String, detail: String, done: Boolean, onGrant: () 
 }
 
 @Composable
-private fun ShieldReadyCard() {
+private fun ShieldReadyCard(sessionActive: Boolean) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -163,17 +167,18 @@ private fun ShieldReadyCard() {
             modifier = Modifier.padding(20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            StatusDot(AccentCyan)
+            StatusDot(if (sessionActive) WarningAmber else AccentCyan)
             Spacer(modifier = Modifier.width(10.dp))
             Column {
                 Text(
-                    text = "Shield ready",
-                    color = AccentCyan,
+                    text = if (sessionActive) "Session in progress" else "Shield ready",
+                    color = if (sessionActive) WarningAmber else AccentCyan,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "Start a session on your watch to begin.",
+                    text = if (sessionActive) "Blocked apps will cost your orb health."
+                           else "Start a session on your watch to begin.",
                     color = TextSecondary,
                     fontSize = 12.sp
                 )
