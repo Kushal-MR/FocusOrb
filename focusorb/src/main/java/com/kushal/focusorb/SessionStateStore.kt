@@ -40,12 +40,4 @@ object SessionStateStore {
         prefs(context).edit().putBoolean(KEY_SESSION_ACTIVE, active).apply()
         Log.d(TAG, "Session state updated: active=$active")
     }
-
-    fun registerListener(context: Context, listener: SharedPreferences.OnSharedPreferenceChangeListener) {
-        prefs(context).registerOnSharedPreferenceChangeListener(listener)
-    }
-
-    fun unregisterListener(context: Context, listener: SharedPreferences.OnSharedPreferenceChangeListener) {
-        prefs(context).unregisterOnSharedPreferenceChangeListener(listener)
-    }
 }

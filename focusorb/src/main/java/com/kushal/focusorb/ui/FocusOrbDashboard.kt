@@ -51,16 +51,17 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.kushal.focusorb.BlocklistStore
 
 // ── Color palette (minimalistic premium dark mode) ───────────────────────
-private val SurfaceBlack       = Color(0xFF0A0A0C)
-private val CardSurface        = Color(0xFF141417)
-private val CardBorder         = Color(0xFF1A1A1A)
-private val TextPrimary        = Color(0xFFF2F2F2)
-private val TextSecondary      = Color(0xFF8E8E93)
-private val AccentCyan         = Color(0xFFE0E0E0) // Minimalistic soft white/silver accent
-private val AccentRed          = Color(0xFFFF453A) // Apple-style soft destructive red
-private val WarningAmber       = Color(0xFFFF9F0A)
-private val SwitchTrackOff     = Color(0xFF1C1C1E)
-private val DividerColor       = Color(0xFF1C1C1E)
+// Internal so the other dashboard sections in ui/ draw from the same palette.
+internal val SurfaceBlack       = Color(0xFF0A0A0C)
+internal val CardSurface        = Color(0xFF141417)
+internal val CardBorder         = Color(0xFF1A1A1A)
+internal val TextPrimary        = Color(0xFFF2F2F2)
+internal val TextSecondary      = Color(0xFF8E8E93)
+internal val AccentCyan         = Color(0xFFE0E0E0) // Minimalistic soft white/silver accent
+internal val AccentRed          = Color(0xFFFF453A) // Apple-style soft destructive red
+internal val WarningAmber       = Color(0xFFFF9F0A)
+internal val SwitchTrackOff     = Color(0xFF1C1C1E)
+internal val DividerColor       = Color(0xFF1C1C1E)
 
 /**
  * FocusOrbDashboard — The top-level Compose screen.
@@ -73,13 +74,13 @@ fun FocusOrbDashboard() {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // ── Accessibility service status ─────────────────────────────────
+    // ── Setup status ─────────────────────────────────────────────────
     // Re-checked every time the Activity resumes (e.g., returning from Settings).
-    var isAccessibilityEnabled by remember { mutableStateOf(false) }
+    var setupStatus by remember { mutableStateOf(SetupStatus.read(context)) }
 
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            isAccessibilityEnabled = checkAccessibilityEnabled(context)
+            setupStatus = SetupStatus.read(context)
         }
     }
 
@@ -130,15 +131,9 @@ fun FocusOrbDashboard() {
             }
         }
 
-        // ── Permission gate ──────────────────────────────────────────
-        if (!isAccessibilityEnabled) {
-            item {
-                PermissionGateCard(context)
-            }
-        } else {
-            item {
-                ServiceActiveCard()
-            }
+        // ── Setup checklist ──────────────────────────────────────────
+        item {
+            SetupSection(status = setupStatus, context = context)
         }
 
         // ── Section label ────────────────────────────────────────────
@@ -187,106 +182,6 @@ fun FocusOrbDashboard() {
     }
 }
 
-// ── Permission Gate Card ─────────────────────────────────────────────────
-
-@Composable
-private fun PermissionGateCard(context: Context) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = CardSurface)
-    ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(AccentRed)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = "Service Offline",
-                    color = AccentRed,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = "Focus Orb needs Accessibility access to monitor which app is in the foreground. No personal data is collected.",
-                color = TextSecondary,
-                fontSize = 13.sp,
-                lineHeight = 18.sp
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Button(
-                onClick = {
-                    context.startActivity(
-                        Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                        }
-                    )
-                },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = WarningAmber,
-                    contentColor = Color.Black
-                )
-            ) {
-                Text(
-                    text = "Grant Permission",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(vertical = 4.dp)
-                )
-            }
-        }
-    }
-}
-
-// ── Service Active Card ──────────────────────────────────────────────────
-
-@Composable
-private fun ServiceActiveCard() {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = CardSurface)
-    ) {
-        Row(
-            modifier = Modifier.padding(20.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(AccentCyan)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Column {
-                Text(
-                    text = "Shield Active",
-                    color = AccentCyan,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = "Monitoring foreground apps in real-time.",
-                    color = TextSecondary,
-                    fontSize = 12.sp
-                )
-            }
-        }
-    }
-}
-
 // ── App Row ──────────────────────────────────────────────────────────────
 
 @Composable
@@ -329,24 +224,4 @@ private fun AppRow(
             )
         )
     }
-}
-
-// ── Utility ──────────────────────────────────────────────────────────────
-
-/**
- * Checks whether our [com.kushal.focusorb.DistractionSniperService] is
- * currently enabled in Android's Accessibility Settings.
- */
-private fun checkAccessibilityEnabled(context: Context): Boolean {
-    val enabledServices = Settings.Secure.getString(
-        context.contentResolver,
-        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-    ) ?: return false
-
-    val expectedComponent = android.content.ComponentName(
-        context,
-        com.kushal.focusorb.DistractionSniperService::class.java
-    ).flattenToString()
-    
-    return enabledServices.contains(expectedComponent, ignoreCase = true)
 }
