@@ -97,6 +97,12 @@ class FocusShieldService : Service() {
         val tracker = ForegroundAppTracker(this@FocusShieldService)
         while (isActive) {
             if (!SessionStateStore.isSessionActive(this@FocusShieldService)) {
+                // Past its expiry with no "ended" from the watch: the watch app
+                // most likely died mid-session. Close the session out ourselves.
+                if (SessionStateStore.hasExpired(this@FocusShieldService)) {
+                    Log.w(TAG, "Session expired without an end signal — standing down.")
+                    SessionStateStore.endSession(this@FocusShieldService)
+                }
                 stopSelf()
                 return
             }

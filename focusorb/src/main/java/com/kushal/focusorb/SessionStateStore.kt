@@ -3,41 +3,75 @@ package com.kushal.focusorb
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import androidx.core.content.edit
 
 /**
  * SessionStateStore — Globally accessible session state for the phone module.
  *
- * Acts as the bridge between [WatchListenerService] (which writes) and
- * [DistractionSniperService] (which reads). Uses [SharedPreferences] so
- * the state survives process restarts.
+ * Written by [WatchListenerService] when the watch's session messages arrive,
+ * read by [FocusShieldService] on every poll. Uses [SharedPreferences] so the
+ * state survives process restarts.
  *
- * Defaults to `false` (inactive) — the sniper sleeps until the watch
- * explicitly sends a "/session_started" signal.
+ * A session is active only until its expiry. The watch sends an expiry with
+ * every start (planned end plus a grace period), so if the watch app dies
+ * mid-session and never sends "ended", the phone stands down by itself instead
+ * of policing the user — and showing its notification — indefinitely.
  */
 object SessionStateStore {
 
     private const val TAG = "SessionState"
     private const val PREFS_NAME = "focusorb_session"
     private const val KEY_SESSION_ACTIVE = "is_session_active"
+    private const val KEY_SESSION_ID = "session_id"
+    private const val KEY_EXPIRES_AT = "expires_at"
+    private const val KEY_PLANNED_MINUTES = "planned_minutes"
+
+    /**
+     * Expiry used when a start message carries no payload (a watch build from
+     * before payloads existed): comfortably longer than the longest session.
+     */
+    private const val FALLBACK_LIFETIME_MS = 2 * 60 * 60 * 1000L
 
     private fun prefs(context: Context): SharedPreferences =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     /**
-     * Returns whether a focus session is currently active on the watch.
-     * Called on the accessibility event hot path — SharedPreferences reads
-     * are in-memory after the first load, so this is effectively O(1).
+     * Whether a focus session is running right now. Called on every shield
+     * poll — SharedPreferences reads are served from memory after the first
+     * load, so this is cheap.
      */
     fun isSessionActive(context: Context): Boolean {
-        return prefs(context).getBoolean(KEY_SESSION_ACTIVE, false)
+        val p = prefs(context)
+        return p.getBoolean(KEY_SESSION_ACTIVE, false) &&
+            System.currentTimeMillis() < p.getLong(KEY_EXPIRES_AT, 0L)
     }
 
-    /**
-     * Updates the session state. Called by [WatchListenerService] when
-     * a session signal arrives from the watch.
-     */
-    fun setSessionActive(context: Context, active: Boolean) {
-        prefs(context).edit().putBoolean(KEY_SESSION_ACTIVE, active).apply()
-        Log.d(TAG, "Session state updated: active=$active")
+    /** True when a session was marked active but its expiry has passed. */
+    fun hasExpired(context: Context): Boolean {
+        val p = prefs(context)
+        return p.getBoolean(KEY_SESSION_ACTIVE, false) &&
+            System.currentTimeMillis() >= p.getLong(KEY_EXPIRES_AT, 0L)
+    }
+
+    /** The current (or most recent) session's ID, or 0 if none. */
+    fun currentSessionId(context: Context): Long = prefs(context).getLong(KEY_SESSION_ID, 0L)
+
+    fun plannedMinutes(context: Context): Int = prefs(context).getInt(KEY_PLANNED_MINUTES, 0)
+
+    /** Records a session start; [started] is null for a legacy empty payload. */
+    fun startSession(context: Context, started: SessionMessage.Started?) {
+        val now = System.currentTimeMillis()
+        prefs(context).edit {
+            putBoolean(KEY_SESSION_ACTIVE, true)
+            putLong(KEY_SESSION_ID, started?.sessionId ?: now)
+            putLong(KEY_EXPIRES_AT, started?.expiresAt ?: (now + FALLBACK_LIFETIME_MS))
+            putInt(KEY_PLANNED_MINUTES, started?.plannedMinutes ?: 0)
+        }
+        Log.d(TAG, "Session started: $started")
+    }
+
+    fun endSession(context: Context) {
+        prefs(context).edit { putBoolean(KEY_SESSION_ACTIVE, false) }
+        Log.d(TAG, "Session ended")
     }
 }

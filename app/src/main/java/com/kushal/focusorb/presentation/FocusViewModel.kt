@@ -56,6 +56,10 @@ data class FocusUiState(
 }
 
 class FocusViewModel(application: Application) : AndroidViewModel(application) {
+    private companion object {
+        const val TAG = "FocusSession"
+    }
+
     private val prefs = application.getSharedPreferences("galaxy_prefs", Context.MODE_PRIVATE)
 
     private val _uiState = MutableStateFlow(FocusUiState())
@@ -65,6 +69,16 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
     val timerEvent = _timerEvent.receiveAsFlow()
 
     private var timerJob: Job? = null
+
+    /**
+     * Identifies the current session to the phone: its original start time.
+     * Kept across pause/resume so the phone can treat the pieces as one
+     * session; cleared once the session reaches an outcome.
+     */
+    private var sessionId: Long? = null
+
+    /** Grace period the phone allows past the planned end before giving up. */
+    private val expiryGraceMs = 60_000L
 
     init {
         loadStars()
@@ -113,9 +127,18 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
         
         _uiState.update { it.copy(sessionState = SessionState.RUNNING) }
 
-        // Signal the phone to start monitoring
+        // Signal the phone to start monitoring. The expiry lets the phone stand
+        // down on its own if this app dies mid-session and never says "ended".
+        val now = System.currentTimeMillis()
+        val id = sessionId ?: now.also { sessionId = it }
+        val payload = SessionMessage.started(
+            sessionId = id,
+            expiresAt = now + _uiState.value.timeRemainingMs + expiryGraceMs,
+            plannedMinutes = _uiState.value.currentDuration.minutes
+        )
+        Log.d(TAG, "Session $id started (${_uiState.value.timeRemainingMs / 1000}s remaining)")
         viewModelScope.launch {
-            PhoneBridgeManager.sendSessionStarted(getApplication())
+            PhoneBridgeManager.sendSessionStarted(getApplication(), payload)
         }
         
         timerJob = viewModelScope.launch {
@@ -144,7 +167,7 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
                 _timerEvent.send(TimerEvent.COMPLETED)
 
                 // Signal the phone to stop monitoring — session completed successfully
-                PhoneBridgeManager.sendSessionEnded(getApplication())
+                endPhoneSession(SessionMessage.Outcome.COMPLETED)
             }
         }
     }
@@ -152,6 +175,10 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
     fun pauseSession() {
         timerJob?.cancel()
         _uiState.update { it.copy(sessionState = SessionState.PAUSED) }
+
+        // Stand the phone down too. Previously a paused orb kept taking hits,
+        // because the phone was never told the clock had stopped.
+        endPhoneSession(SessionMessage.Outcome.PAUSED)
     }
 
     fun takeDamage() {
@@ -161,10 +188,10 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
         if (newHealth <= 0) {
             timerJob?.cancel()
             _uiState.update { it.copy(orbHealth = 0, sessionState = SessionState.SHATTERED) }
+            // Signal the phone to stop monitoring — session shattered
+            endPhoneSession(SessionMessage.Outcome.SHATTERED)
             viewModelScope.launch {
                 _timerEvent.send(TimerEvent.SHATTER)
-                // Signal the phone to stop monitoring — session shattered
-                PhoneBridgeManager.sendSessionEnded(getApplication())
             }
         } else {
             _uiState.update { it.copy(orbHealth = newHealth) }
@@ -185,9 +212,21 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
 
         // Signal the phone to stop monitoring if session was active
         if (wasActive) {
-            viewModelScope.launch {
-                PhoneBridgeManager.sendSessionEnded(getApplication())
-            }
+            endPhoneSession(SessionMessage.Outcome.CANCELLED)
+        }
+    }
+
+    /**
+     * Tells the phone the session has stopped, and why. Every outcome except
+     * a pause closes the session out, so the next start gets a fresh ID.
+     */
+    private fun endPhoneSession(outcome: SessionMessage.Outcome) {
+        val id = sessionId ?: return
+        if (outcome != SessionMessage.Outcome.PAUSED) sessionId = null
+        val payload = SessionMessage.ended(id, outcome)
+        Log.d(TAG, "Session $id ended: $outcome")
+        viewModelScope.launch {
+            PhoneBridgeManager.sendSessionEnded(getApplication(), payload)
         }
     }
 

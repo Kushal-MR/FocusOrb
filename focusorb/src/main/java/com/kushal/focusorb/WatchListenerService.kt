@@ -28,13 +28,23 @@ class WatchListenerService : WearableListenerService() {
 
         when (messageEvent.path) {
             PATH_SESSION_STARTED -> {
-                Log.d(TAG, "SESSION STARTED signal from watch (node: ${messageEvent.sourceNodeId})")
-                SessionStateStore.setSessionActive(this, true)
+                val started = SessionMessage.decodeStarted(messageEvent.data)
+                Log.d(TAG, "SESSION STARTED from watch (node: ${messageEvent.sourceNodeId}): $started")
+                SessionStateStore.startSession(this, started)
                 startShield()
             }
             PATH_SESSION_ENDED -> {
-                Log.d(TAG, "SESSION ENDED signal from watch (node: ${messageEvent.sourceNodeId})")
-                SessionStateStore.setSessionActive(this, false)
+                val ended = SessionMessage.decodeEnded(messageEvent.data)
+                Log.d(TAG, "SESSION ENDED from watch (node: ${messageEvent.sourceNodeId}): $ended")
+
+                // An "ended" for some earlier session — say, one delayed in
+                // transit past the start of the next — must not cut short the
+                // session that is running now.
+                if (ended != null && ended.sessionId != SessionStateStore.currentSessionId(this)) {
+                    Log.w(TAG, "Ignoring stale end for session ${ended.sessionId}")
+                    return
+                }
+                SessionStateStore.endSession(this)
                 FocusShieldService.stop(this)
             }
         }
