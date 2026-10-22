@@ -1,7 +1,15 @@
 package com.kushal.focusorb.presentation.theme
 
+import android.content.Context
+import android.provider.Settings
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.wear.compose.foundation.ExperimentalWearFoundationApi
+import androidx.wear.compose.foundation.LocalReduceMotion
+import androidx.wear.compose.foundation.ReduceMotion
 import androidx.wear.compose.material.Colors
 import androidx.wear.compose.material.MaterialTheme
 
@@ -32,12 +40,37 @@ internal val FocusOrbColors = Colors(
     onError = Color.Black
 )
 
+@OptIn(ExperimentalWearFoundationApi::class)
 @Composable
 fun FocusOrbTheme(
     content: @Composable () -> Unit
 ) {
-    MaterialTheme(
-        colors = FocusOrbColors,
-        content = content
-    )
+    // Supply the reduce-motion preference ourselves rather than letting Wear
+    // Compose read it. Its own read (ScalingLazyColumn and friends) is not
+    // guarded, and on some Wear OS 5 builds — seen on a OnePlus watch — the
+    // "reduce_motion" setting throws SecurityException for apps targeting
+    // API 35+. Uncaught, that crashed the app on launch.
+    val context = LocalContext.current
+    val reduceMotion = remember { readReduceMotion(context) }
+    val reduceMotionLocal = remember(reduceMotion) {
+        object : ReduceMotion {
+            @Composable
+            override fun enabled(): Boolean = reduceMotion
+        }
+    }
+
+    CompositionLocalProvider(LocalReduceMotion provides reduceMotionLocal) {
+        MaterialTheme(
+            colors = FocusOrbColors,
+            content = content
+        )
+    }
 }
+
+/** The system reduce-motion flag, or false where the platform won't let us read it. */
+private fun readReduceMotion(context: Context): Boolean =
+    try {
+        Settings.Global.getInt(context.contentResolver, "reduce_motion", 0) == 1
+    } catch (e: SecurityException) {
+        false
+    }
