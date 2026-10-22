@@ -1,7 +1,17 @@
 package com.kushal.focusorb.ui
 
 import android.text.format.DateUtils
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,9 +32,13 @@ import androidx.compose.ui.unit.sp
 import com.kushal.focusorb.SessionHistoryStore
 import com.kushal.focusorb.SessionHistoryStore.Outcome
 
+/** Sessions shown on the dashboard before "See all". */
+private const val PREVIEW_COUNT = 5
+
 /**
- * "This week" totals and every recorded session, newest first. The store
- * itself caps history at 100 entries.
+ * "This week" totals and the most recent sessions. The full list lives on
+ * [HistoryScreen]: listing every session here would push the blocklist — the
+ * part people actually come to change — far down the page.
  *
  * @param openSessionId The session currently running, if any. Lets an open
  *                      entry read "In progress" rather than "Paused".
@@ -35,7 +49,8 @@ fun HistorySection(
     entries: List<SessionHistoryStore.Entry>,
     week: SessionHistoryStore.WeekSummary,
     openSessionId: Long?,
-    labelFor: (String) -> String
+    labelFor: (String) -> String,
+    onSeeAll: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionLabel("This week")
@@ -52,7 +67,14 @@ fun HistorySection(
         }
 
         Spacer(modifier = Modifier.height(4.dp))
-        SectionLabel("Recent sessions")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionLabel("Recent sessions", modifier = Modifier.weight(1f))
+            if (entries.size > PREVIEW_COUNT) {
+                TextButton(onClick = onSeeAll) {
+                    Text(text = "See all ${entries.size}", color = TextPrimary, fontSize = 14.sp)
+                }
+            }
+        }
 
         if (entries.isEmpty()) {
             Text(
@@ -62,8 +84,54 @@ fun HistorySection(
                 lineHeight = 20.sp
             )
         } else {
-            AppListCard(rowCount = entries.size) { index ->
-                SessionRow(entries[index], openSessionId, labelFor)
+            val preview = entries.take(PREVIEW_COUNT)
+            AppListCard(rowCount = preview.size) { index ->
+                SessionRow(preview[index], openSessionId, labelFor)
+            }
+        }
+    }
+}
+
+/**
+ * Every recorded session (the store keeps the latest 100), newest first.
+ * Lazy, so a long history scrolls without composing every row up front.
+ */
+@Composable
+fun HistoryScreen(
+    entries: List<SessionHistoryStore.Entry>,
+    openSessionId: Long?,
+    labelFor: (String) -> String,
+    onDone: () -> Unit
+) {
+    BackHandler(onBack = onDone)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(SurfaceBlack)
+            .safeDrawingPadding()
+            .padding(horizontal = 20.dp)
+    ) {
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = "History", color = TextPrimary, fontSize = 24.sp, fontWeight = FontWeight.Medium)
+                Text(
+                    text = if (entries.size == 1) "1 session" else "${entries.size} sessions",
+                    color = TextSecondary,
+                    fontSize = 13.sp
+                )
+            }
+            TextButton(onClick = onDone) {
+                Text(text = "Done", color = TextPrimary, fontSize = 15.sp)
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+            itemsIndexed(entries, key = { _, e -> e.sessionId }) { index, entry ->
+                SessionRow(entry, openSessionId, labelFor)
+                if (index < entries.lastIndex) {
+                    HorizontalDivider(color = DividerColor, thickness = 0.5.dp)
+                }
             }
         }
     }

@@ -111,6 +111,19 @@ fun FocusOrbDashboard() {
         installedApps?.associateBy { it.packageName }.orEmpty()
     }
 
+    val labelFor = { pkg: String -> installedByPackage[pkg]?.label ?: InstalledAppsRepository.labelFor(context, pkg) }
+
+    var showHistory by rememberSaveable { mutableStateOf(false) }
+    if (showHistory) {
+        HistoryScreen(
+            entries = history,
+            openSessionId = openSessionId,
+            labelFor = labelFor,
+            onDone = { showHistory = false }
+        )
+        return
+    }
+
     var showPicker by rememberSaveable { mutableStateOf(false) }
     if (showPicker) {
         AppPickerScreen(
@@ -176,10 +189,8 @@ fun FocusOrbDashboard() {
                 entries = history,
                 week = week,
                 openSessionId = openSessionId,
-                // The full installed list loads in the background; until it
-                // arrives, ask PackageManager for just this one label so a raw
-                // package name never flashes up.
-                labelFor = { pkg -> installedByPackage[pkg]?.label ?: InstalledAppsRepository.labelFor(context, pkg) }
+                labelFor = labelFor,
+                onSeeAll = { showHistory = true }
             )
         }
 
