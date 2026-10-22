@@ -22,11 +22,9 @@ import androidx.compose.ui.unit.sp
 import com.kushal.focusorb.SessionHistoryStore
 import com.kushal.focusorb.SessionHistoryStore.Outcome
 
-/** How many recent sessions the dashboard lists. */
-private const val RECENT_LIMIT = 6
-
 /**
- * "This week" totals and the most recent sessions.
+ * "This week" totals and every recorded session, newest first. The store
+ * itself caps history at 100 entries.
  *
  * @param openSessionId The session currently running, if any. Lets an open
  *                      entry read "In progress" rather than "Paused".
@@ -64,9 +62,8 @@ fun HistorySection(
                 lineHeight = 20.sp
             )
         } else {
-            val recent = entries.take(RECENT_LIMIT)
-            AppListCard(rowCount = recent.size) { index ->
-                SessionRow(recent[index], openSessionId, labelFor)
+            AppListCard(rowCount = entries.size) { index ->
+                SessionRow(entries[index], openSessionId, labelFor)
             }
         }
     }

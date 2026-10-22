@@ -23,6 +23,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
@@ -98,6 +100,7 @@ fun SetupSection(status: SetupStatus, context: Context, sessionActive: Boolean) 
                     done = status.usageAccess,
                     onGrant = { context.openSettings(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
                 )
+                if (!status.usageAccess) RestrictedSettingsHelp(context)
                 SetupStep(
                     title = "Notifications",
                     detail = "Show when a session is running",
@@ -134,6 +137,35 @@ private fun SetupStep(title: String, detail: String, done: Boolean, onGrant: () 
             ) {
                 Text(text = "Grant", fontSize = 14.sp)
             }
+        }
+    }
+}
+
+/**
+ * Android 13+ greys out usage access for apps installed from a downloaded APK
+ * ("Restricted settings"), which is how anyone installing from the GitHub
+ * release gets this app. The unlock lives in App info's overflow menu, which
+ * few people would find unprompted.
+ */
+@Composable
+private fun RestrictedSettingsHelp(context: Context) {
+    Column {
+        Text(
+            text = "Toggle greyed out? Open App info, tap ⋮ in the top corner, choose " +
+                "\"Allow restricted settings\", then come back and tap Grant.",
+            color = TextSecondary,
+            fontSize = 13.sp,
+            lineHeight = 18.sp
+        )
+        TextButton(
+            onClick = {
+                context.openSettings(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+                )
+            },
+            contentPadding = PaddingValues(0.dp)
+        ) {
+            Text(text = "Open App info", color = TextPrimary, fontSize = 14.sp)
         }
     }
 }

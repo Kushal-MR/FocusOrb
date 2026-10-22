@@ -48,4 +48,6 @@ Kotlin · Jetpack Compose (Wear + Material 3) · Wearable Data Layer API · Usag
 
 Download both APKs from the [latest release](https://github.com/Kushal-MR/FocusOrb/releases/latest): `FocusOrb-watch` for Wear OS (API 30+) and `FocusOrb-phone` for Android (API 28+). Open the phone app, then grant usage access, notifications, and unrestricted battery.
 
+> **Usage access greyed out?** Android 13+ restricts it for apps installed from a downloaded APK. Open FocusOrb's App info, tap ⋮ → **Allow restricted settings**, then grant it.
+
 To build from source, open the project in Android Studio and run the `app` module (watch) and the `focusorb` module (phone).
