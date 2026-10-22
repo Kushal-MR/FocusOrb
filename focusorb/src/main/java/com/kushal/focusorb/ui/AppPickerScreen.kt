@@ -3,7 +3,14 @@ package com.kushal.focusorb.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,8 +27,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -146,7 +151,9 @@ private fun PickerRow(app: InstalledApp, isBlocked: Boolean, onToggle: (Boolean)
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .clickable { onToggle(!isBlocked) }
+            // toggleable rather than clickable: the whole row is the control,
+            // announced to TalkBack as a checkbox with its checked state.
+            .toggleable(value = isBlocked, role = Role.Checkbox, onValueChange = onToggle)
             .padding(vertical = 10.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -169,15 +176,37 @@ private fun PickerRow(app: InstalledApp, isBlocked: Boolean, onToggle: (Boolean)
                 overflow = TextOverflow.Ellipsis
             )
         }
-        Checkbox(
-            checked = isBlocked,
-            onCheckedChange = onToggle,
-            colors = CheckboxDefaults.colors(
-                checkedColor = TextPrimary,
-                uncheckedColor = TextSecondary,
-                checkmarkColor = Color.Black
+        CheckMark(checked = isBlocked)
+    }
+}
+
+/**
+ * A drawn check box. Material's Checkbox sets up several animations per
+ * instance, and composing one for every row that scrolls into view was a
+ * measurable share of the picker's frame time on a 120 Hz phone. This is a
+ * single Canvas with no state, and the row above supplies the semantics.
+ */
+@Composable
+private fun CheckMark(checked: Boolean) {
+    Canvas(modifier = Modifier.padding(horizontal = 12.dp).size(20.dp)) {
+        val corner = CornerRadius(5.dp.toPx())
+        if (checked) {
+            drawRoundRect(color = TextPrimary, cornerRadius = corner)
+            val stroke = 2.dp.toPx()
+            val w = size.width
+            val h = size.height
+            drawLine(Color.Black, Offset(w * 0.24f, h * 0.52f), Offset(w * 0.43f, h * 0.70f), stroke, StrokeCap.Round)
+            drawLine(Color.Black, Offset(w * 0.43f, h * 0.70f), Offset(w * 0.77f, h * 0.32f), stroke, StrokeCap.Round)
+        } else {
+            val stroke = 1.5.dp.toPx()
+            drawRoundRect(
+                color = TextSecondary,
+                topLeft = Offset(stroke / 2, stroke / 2),
+                size = Size(size.width - stroke, size.height - stroke),
+                cornerRadius = corner,
+                style = Stroke(width = stroke)
             )
-        )
+        }
     }
 }
 
