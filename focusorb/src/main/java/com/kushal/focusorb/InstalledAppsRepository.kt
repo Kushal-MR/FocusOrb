@@ -31,6 +31,16 @@ object InstalledAppsRepository {
     /** Icons are rasterised once at this size; rows draw them at 40dp. */
     private const val ICON_PX = 96
 
+    /**
+     * One app's label, falling back to its package name if it has been
+     * uninstalled. A single lookup is cheap enough for the main thread.
+     */
+    fun labelFor(context: Context, packageName: String): String =
+        runCatching {
+            val pm = context.packageManager
+            pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString()
+        }.getOrDefault(packageName)
+
     /** Loads off the main thread — decoding a few hundred icons takes a moment. */
     suspend fun load(context: Context): List<InstalledApp> = withContext(Dispatchers.IO) {
         val pm = context.packageManager

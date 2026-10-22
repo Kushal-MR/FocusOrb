@@ -40,7 +40,7 @@ fun HistorySection(
     labelFor: (String) -> String
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionLabel("THIS WEEK")
+        SectionLabel("This week")
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -54,7 +54,7 @@ fun HistorySection(
         }
 
         Spacer(modifier = Modifier.height(4.dp))
-        SectionLabel("RECENT SESSIONS")
+        SectionLabel("Recent sessions")
 
         if (entries.isEmpty()) {
             Text(
@@ -119,11 +119,13 @@ private fun SessionRow(
 
 private fun describeOutcome(entry: SessionHistoryStore.Entry, openSessionId: Long?): Pair<String, Color> =
     when (entry.outcome) {
+        // Weight carries the meaning instead of colour: outcomes that count
+        // (completed, shattered, live) read in full white, the rest recede.
         Outcome.COMPLETED -> "Completed" to TextPrimary
-        Outcome.SHATTERED -> "Shattered" to AccentRed
+        Outcome.SHATTERED -> "Shattered" to TextPrimary
         Outcome.CANCELLED -> "Cancelled" to TextSecondary
         // The watch went quiet and the phone closed the session itself.
         Outcome.EXPIRED -> "Lost contact" to TextSecondary
         Outcome.UNFINISHED -> "Unfinished" to TextSecondary
-        null -> if (entry.sessionId == openSessionId) "In progress" to WarningAmber else "Paused" to WarningAmber
+        null -> if (entry.sessionId == openSessionId) "In progress" to TextPrimary else "Paused" to TextSecondary
     }

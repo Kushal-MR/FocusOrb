@@ -91,7 +91,7 @@ fun AppPickerScreen(
                 )
             }
             TextButton(onClick = onDone) {
-                Text(text = "Done", color = AccentCyan, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text(text = "Done", color = TextPrimary, fontSize = 15.sp)
             }
         }
 
@@ -107,9 +107,9 @@ fun AppPickerScreen(
             colors = OutlinedTextFieldDefaults.colors(
                 focusedTextColor = TextPrimary,
                 unfocusedTextColor = TextPrimary,
-                focusedBorderColor = AccentCyan,
+                focusedBorderColor = TextSecondary,
                 unfocusedBorderColor = DividerColor,
-                cursorColor = AccentCyan,
+                cursorColor = TextPrimary,
                 focusedContainerColor = CardSurface,
                 unfocusedContainerColor = CardSurface
             )
@@ -119,7 +119,7 @@ fun AppPickerScreen(
 
         when {
             visible == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = AccentCyan)
+                CircularProgressIndicator(color = TextSecondary)
             }
             visible.isEmpty() -> Text(
                 text = "No apps match \"$query\".",
@@ -173,9 +173,9 @@ private fun PickerRow(app: InstalledApp, isBlocked: Boolean, onToggle: (Boolean)
             checked = isBlocked,
             onCheckedChange = onToggle,
             colors = CheckboxDefaults.colors(
-                checkedColor = AccentRed,
+                checkedColor = TextPrimary,
                 uncheckedColor = TextSecondary,
-                checkmarkColor = Color.White
+                checkmarkColor = Color.Black
             )
         )
     }

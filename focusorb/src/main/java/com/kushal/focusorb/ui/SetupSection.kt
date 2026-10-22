@@ -11,29 +11,24 @@ import android.os.Build
 import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -75,7 +70,7 @@ data class SetupStatus(
 @Composable
 fun SetupSection(status: SetupStatus, context: Context, sessionActive: Boolean) {
     if (status.isComplete) {
-        ShieldReadyCard(sessionActive)
+        StatusCard(sessionActive)
         return
     }
 
@@ -85,42 +80,33 @@ fun SetupSection(status: SetupStatus, context: Context, sessionActive: Boolean) 
         colors = CardDefaults.cardColors(containerColor = CardSurface)
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                StatusDot(AccentRed)
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = "Finish setup",
-                    color = AccentRed,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-            Spacer(modifier = Modifier.height(6.dp))
+            Text(text = "Finish setup", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Focus Orb only sees which app is open — never what's on your screen.",
+                text = "Focus Orb only sees which app is open, never what's on your screen.",
                 color = TextSecondary,
                 fontSize = 13.sp,
                 lineHeight = 18.sp
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 SetupStep(
                     title = "Usage access",
-                    detail = "To see which app is in the foreground.",
+                    detail = "See which app is in the foreground",
                     done = status.usageAccess,
                     onGrant = { context.openSettings(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
                 )
                 SetupStep(
                     title = "Notifications",
-                    detail = "Shows that a session is running.",
+                    detail = "Show when a session is running",
                     done = status.notifications,
                     onGrant = { context.openSettings(notificationSettingsIntent(context)) }
                 )
                 SetupStep(
                     title = "Unrestricted battery",
-                    detail = "Lets your watch start a session while this app is closed.",
+                    detail = "Let your watch start a session while this app is closed",
                     done = status.batteryUnrestricted,
                     onGrant = { context.openSettings(batteryExemptionIntent(context)) }
                 )
@@ -132,69 +118,49 @@ fun SetupSection(status: SetupStatus, context: Context, sessionActive: Boolean) 
 @Composable
 private fun SetupStep(title: String, detail: String, done: Boolean, onGrant: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        StatusDot(if (done) AccentCyan else WarningAmber)
-        Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            Text(text = detail, color = TextSecondary, fontSize = 12.sp, lineHeight = 16.sp)
+            Text(text = title, color = TextPrimary, fontSize = 15.sp)
+            Text(text = detail, color = TextSecondary, fontSize = 13.sp, lineHeight = 17.sp)
         }
         Spacer(modifier = Modifier.width(12.dp))
         if (done) {
-            Text(text = "Done", color = TextSecondary, fontSize = 13.sp)
+            Text(text = "Done", color = TextSecondary, fontSize = 14.sp)
         } else {
-            Button(
+            OutlinedButton(
                 onClick = onGrant,
                 shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = WarningAmber,
-                    contentColor = Color.Black
-                )
+                border = BorderStroke(1.dp, OutlineColor),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary)
             ) {
-                Text(text = "Grant", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text(text = "Grant", fontSize = 14.sp)
             }
         }
     }
 }
 
+/** Shown once setup is complete: either idle or mid-session. */
 @Composable
-private fun ShieldReadyCard(sessionActive: Boolean) {
+private fun StatusCard(sessionActive: Boolean) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = CardSurface)
     ) {
-        Row(
-            modifier = Modifier.padding(20.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            StatusDot(if (sessionActive) WarningAmber else AccentCyan)
-            Spacer(modifier = Modifier.width(10.dp))
-            Column {
-                Text(
-                    text = if (sessionActive) "Session in progress" else "Shield ready",
-                    color = if (sessionActive) WarningAmber else AccentCyan,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = if (sessionActive) "Blocked apps will cost your orb health."
-                           else "Start a session on your watch to begin.",
-                    color = TextSecondary,
-                    fontSize = 12.sp
-                )
-            }
+        Column(modifier = Modifier.padding(20.dp)) {
+            Text(
+                text = if (sessionActive) "Session in progress" else "Ready",
+                color = TextPrimary,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = if (sessionActive) "Opening a blocked app will cost your orb health."
+                       else "Start a session on your watch to begin.",
+                color = TextSecondary,
+                fontSize = 13.sp
+            )
         }
     }
-}
-
-@Composable
-private fun StatusDot(color: Color) {
-    Box(
-        modifier = Modifier
-            .size(8.dp)
-            .clip(CircleShape)
-            .background(color)
-    )
 }
 
 // ── Checks ───────────────────────────────────────────────────────────────

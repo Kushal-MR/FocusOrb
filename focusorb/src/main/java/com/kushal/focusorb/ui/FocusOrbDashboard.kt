@@ -45,16 +45,15 @@ import com.kushal.focusorb.InstalledAppsRepository
 import com.kushal.focusorb.SessionHistoryStore
 import com.kushal.focusorb.SessionStateStore
 
-// ── Color palette (minimalistic premium dark mode) ───────────────────────
-// Internal so the other dashboard sections in ui/ draw from the same palette.
+// ── Palette ──────────────────────────────────────────────────────────────
+// Deliberately monochrome: the phone is a settings-and-history screen, and the
+// colour lives on the watch. Shared with the other dashboard sections in ui/.
 internal val SurfaceBlack       = Color(0xFF0A0A0C)
 internal val CardSurface        = Color(0xFF141417)
 internal val TextPrimary        = Color(0xFFF2F2F2)
 internal val TextSecondary      = Color(0xFF8E8E93)
-internal val AccentCyan         = Color(0xFFE0E0E0) // Minimalistic soft white/silver accent
-internal val AccentRed          = Color(0xFFFF453A) // Apple-style soft destructive red
-internal val WarningAmber       = Color(0xFFFF9F0A)
 internal val DividerColor       = Color(0xFF1C1C1E)
+internal val OutlineColor       = Color(0xFF3A3A3C)
 
 /**
  * FocusOrbDashboard — The top-level Compose screen.
@@ -151,22 +150,14 @@ fun FocusOrbDashboard() {
             Column {
                 Spacer(modifier = Modifier.height(24.dp))
                 Text(
-                    text = "FOCUS ORB",
-                    color = AccentCyan,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 2.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Distraction Shield",
+                    text = "Focus Orb",
                     color = TextPrimary,
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.Medium
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Opening these apps during a focus session costs your orb health.",
+                    text = "Opening a blocked app during a session costs your orb health.",
                     color = TextSecondary,
                     fontSize = 14.sp,
                     lineHeight = 22.sp
@@ -185,16 +176,19 @@ fun FocusOrbDashboard() {
                 entries = history,
                 week = week,
                 openSessionId = openSessionId,
-                labelFor = { pkg -> installedByPackage[pkg]?.label ?: pkg }
+                // The full installed list loads in the background; until it
+                // arrives, ask PackageManager for just this one label so a raw
+                // package name never flashes up.
+                labelFor = { pkg -> installedByPackage[pkg]?.label ?: InstalledAppsRepository.labelFor(context, pkg) }
             )
         }
 
         // ── Blocked apps ─────────────────────────────────────────────
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                SectionLabel("BLOCKED APPS", modifier = Modifier.weight(1f))
+                SectionLabel("Blocked apps", modifier = Modifier.weight(1f))
                 TextButton(onClick = { showPicker = true }) {
-                    Text(text = "Add apps", color = AccentCyan, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(text = "Add apps", color = TextPrimary, fontSize = 14.sp)
                 }
             }
         }
@@ -228,7 +222,7 @@ fun FocusOrbDashboard() {
         if (suggestions.isNotEmpty()) {
             item {
                 Spacer(modifier = Modifier.height(4.dp))
-                SectionLabel("SUGGESTED")
+                SectionLabel("Suggested")
             }
             item {
                 AppListCard(rowCount = suggestions.size) { index ->
@@ -238,7 +232,7 @@ fun FocusOrbDashboard() {
                         label = app.label,
                         packageName = app.packageName,
                         actionLabel = "Block",
-                        actionColor = AccentRed,
+                        actionColor = TextPrimary,
                         onAction = { setBlocked(app.packageName, true) }
                     )
                 }
@@ -257,9 +251,8 @@ internal fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
         color = TextSecondary,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.SemiBold,
-        letterSpacing = 2.sp,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Medium,
         modifier = modifier
     )
 }
