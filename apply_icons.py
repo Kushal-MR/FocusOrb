@@ -1,4 +1,6 @@
 import os
+import sys
+from pathlib import Path
 import shutil
 import glob
 from PIL import Image
@@ -48,9 +50,15 @@ def generate_icons(source_image, res_dir):
         
         print(f"Generated {size}x{size} for {density} in {res_dir}")
 
-source_img = r"C:\Users\kusha\.gemini\antigravity\brain\13e4b3fe-a2ba-4ecc-8154-ab8b8daae50a\focusorb_concept_3_improved_b_1782621854987.png"
-app_res = r"c:\AndroidProjects\FocusOrb\app\src\main\res"
-phone_res = r"c:\AndroidProjects\FocusOrb\focusorb\src\main\res"
+# Paths are resolved relative to this script, so it works wherever the repo lives.
+# Usage: python apply_icons.py [path/to/source.png]   (default: art/icon_source.png)
+ROOT = Path(__file__).resolve().parent
+source_img = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "art" / "icon_source.png"
+app_res = ROOT / "app" / "src" / "main" / "res"
+phone_res = ROOT / "focusorb" / "src" / "main" / "res"
+
+if not source_img.is_file():
+    sys.exit(f"Source image not found: {source_img}")
 
 print("Generating for watch app...")
 generate_icons(source_img, app_res)
